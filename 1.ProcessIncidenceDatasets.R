@@ -3,7 +3,7 @@
 ##DATE STARTED: 18NOV2022
 ##PURPOSE: Builds Last Step Datasets for Analysis
 ##NOTES:
-##LAST UPDATED: 21SEP2023
+##LAST UPDATED: 30JAN2026
 ###################################################
 
 ## ENSURE NECESSARY PACKAGES ARE INSTALLED
@@ -244,7 +244,7 @@ denom_final <- denom_final_merge %>%
 
 # Export key dataset
 write_rds(denom_final |> select(-c(adj_adults,raw_adults)), 
-          paste0("./Last Step Datasets/denominator_",today,".Rds"))
+          paste0("./Last Step Datasets/denominator.Rds"))
 
 ############################################
 ### BUILD HEALTHCARE SEEKING ADJUSTMENT ####
@@ -380,7 +380,7 @@ a_factor <- total_diarrhea_merge %>%
   select(-hus_blood)
 
 # Export key dataset
-write_rds(a_factor, paste0("./Last Step Datasets/a_factor_",today,".Rds"))
+write_rds(a_factor, paste0("./Last Step Datasets/a_factor.Rds"))
 
 ############################################
 ####### BUILD ENROLLMENT ADJUSTMENT ########
@@ -561,7 +561,7 @@ b_factor <- list(prescreen_final,screen_eligible,screen_final,b_factor_p1) %>% #
   rename(enroll_site=pscr_country) 
 
 # Export key dataset
-write_rds(b_factor, paste0("./Last Step Datasets/b_factor_",today,".Rds"))
+write_rds(b_factor, paste0("./Last Step Datasets/b_factor.Rds"))
 
 ############################################
 ######### BUILD NUMERATOR ##################
@@ -1002,7 +1002,7 @@ test_num <- numerator_merge %>% filter(is.na(serogroup) &
                                        is.na(fac_id) &
                                        is.na(dysentery))
 
-write_rds(numerator_merge, paste0("./Last Step Datasets/numerator_",today,".Rds")) 
+write_rds(numerator_merge, paste0("./Last Step Datasets/numerator.Rds")) 
 
 # Export TAC and culture results to look at serotypes
 serotype_dist <- shigella_results |>
@@ -1016,7 +1016,7 @@ serotype_dist <- shigella_results |>
 table(serotype_dist$serogroup,serotype_dist$serotype, useNA="ifany")
 table(serotype_dist$sens2, serotype_dist$source,useNA = "ifany")
 
-write_rds(serotype_dist, paste0("./Last Step Datasets/serotype_dist_",today,".Rds")) 
+write_rds(serotype_dist, paste0("./Last Step Datasets/serotype_dist.Rds")) 
 
 ###############################################
 ######### incidence of all diarrhea ###########
@@ -1093,4 +1093,4 @@ num_diarrhea_overall_total <- diarrhea_results %>%
 # Rbind list plus overall non-stratified
 diarrhea_numerator <- bind_rows(num_diarrhea_overall_facility, num_diarrhea_overall_site, num_diarrhea_overall_total)
 
-write_rds(diarrhea_numerator, paste0("./Last Step Datasets/diarrhea_numerator_",today,".Rds")) 
+write_rds(diarrhea_numerator, paste0("./Last Step Datasets/diarrhea_numerator.Rds")) 

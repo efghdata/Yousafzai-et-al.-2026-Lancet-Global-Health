@@ -1,0 +1,2535 @@
+---
+title: "3.RunAnalysis"
+format: html
+editor: visual
+---
+
+```{r setup, echo=FALSE, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#clear all data frames from environment
+rm(list=ls())
+
+## ENSURE NECESSARY PACKAGES ARE INSTALLED
+packages = c("ezknitr", "tidyverse", "haven", "knitr","ggplot2", "ggthemes", "scales", "lubridate", "janitor", "consort", "anthro", "rmarkdown", "flextable", "officer", "magrittr", "zoo", "gtsummary", "stats", "sandwich", "ggh4x", "lmtest","conflicted","wesanderson","viridis","patchwork","ggrepel","paletteer","ggtext","binom")
+
+## Now load or install & load all
+package.check <- lapply( packages, FUN = function(x) {
+  if (!require(x, character.only = TRUE)) {
+    install.packages(x, dependencies = TRUE)
+    library(x, character.only = TRUE)
+  }
+}
+)
+
+# build quick function
+`%notin%` <- Negate(`%in%`)
+
+## Create data stmap for exports
+today <- strftime(Sys.Date(),"%Y%m%d")
+
+## Specify conflicts
+conflicts_prefer(dplyr::filter) # conflicts with stats
+conflicts_prefer(flextable::compose) # conflicts with purrr
+conflicts_prefer(lubridate::month) 
+conflicts_prefer(lubridate::year)
+conflicts_prefer(dplyr::rename) #conflicts with lessR
+
+######LOAD LAST STEP DATASETS#####
+denom              <- readRDS("./Last Step Datasets/denominator.Rds")
+numerator          <- readRDS("./Last Step Datasets/numerator.Rds")
+diarrhea_numerator <- readRDS("./Last Step Datasets/diarrhea_numerator.Rds")
+a_factor           <- readRDS("./Last Step Datasets/a_factor.Rds")
+b_factor           <- readRDS("./Last Step Datasets/b_factor.Rds")
+boot               <- readRDS("./Last Step Datasets/boot_all_agegrps.Rds")
+boot_season        <- readRDS("./Last Step Datasets/boot_monthly.Rds")
+boot_severity      <- readRDS("./Last Step Datasets/boot_severity_subsets.Rds")
+serotype_dist      <- readRDS("./Last Step Datasets/serotype_dist.Rds") 
+enroll_data        <- readRDS("./Last Step Datasets/dcs_summary.Rds")
+summary            <- readRDS("./Last Step Datasets/enrollment_summary.Rds")
+abx_fig            <- readRDS("./Last Step Datasets/abx_fig.Rds")
+abx_tab            <- readRDS("./Last Step Datasets/abx_tab.Rds")
+abx_results        <- readRDS("./Last Step Datasets/abx.Rds")
+oth_path           <- readRDS("./Last Step Datasets/other_pathogens.Rds")
+cause_of_death     <- readRDS("./Last Step Datasets/cause_of_death.Rds") 
+
+# Formatting for tables
+border_style = officer::fp_border(color="gray", width=2)
+border_style2 = officer::fp_border(color="black", width=1)
+border_style3 = officer::fp_border(color="gray", width=1)
+border_style4 = officer::fp_border(color="white", width=0)
+
+sect_properties1 <- prop_section(
+  page_size = page_size(
+    orient = "landscape",
+    width = 11, height = 8.5
+  ),
+  type = "continuous",
+  page_margins = page_mar()
+)
+
+sect_properties2 <- prop_section(
+  page_size = page_size(
+    orient = "portrait",
+    width = 8.5, height = 11
+  ),
+  type = "continuous",
+  page_margins = page_mar()
+)
+
+# Create palette for visualizations
+new_pal = c("#33692B", "#73C167",  "#67C7BE", "#3995B9", "#006792", "#39017A", "#9078DE", "#D1C7F1")
+```
+
+```{r shigella_incidence, echo=FALSE, include=TRUE}
+# Create watery and dysentery datasets - merge in a and b factors
+watery_diarrhea <- numerator %>%
+  subset(b_dysentery==0 & (!is.na(fac_id))) %>%
+  left_join(b_factor %>% filter(!is.na(fac_id) | enroll_site==8), by = c("enroll_site", "fac_id","b_dysentery")) %>%
+  ungroup() %>%
+  mutate(c_month=as.yearmon(paste(year, month), "%Y %m")) %>%
+  select(enroll_site,sens1,sens2,sens3,serotype,serogroup,dys_serotype,quad,quad2,biv,starts_with("agegroup"),starts_with("gems"),starts_with("mvs"),clark,maled,c_month,month,year,dysentery,hosp_during_episode,starts_with("culture"),starts_with("tac"),b_factor,b_factor_weight,fac_id) %>%
+  rename(watery_culture_pos=culture_pos,
+         watery_tac_pos=tac_pos,
+         watery_culture_est=culture_est,
+         watery_tac_est=tac_est,
+         watery_culture_est2=culture_est2,
+         watery_tac_est2=tac_est2,
+         watery_culture_wt=culture_wt,
+         watery_tac_wt=tac_wt,
+         watery_culture_wt_sens=culture_wt_sens,
+         watery_tac_wt_sens=tac_wt_sens,
+         watery_b_factor=b_factor,
+         watery_b_factor_weight=b_factor_weight)
+
+dysentery <-  numerator %>%
+  subset(b_dysentery==1 & (!is.na(fac_id))) %>%
+  left_join(b_factor %>% filter(!is.na(fac_id) | enroll_site==8), by = c("enroll_site", "fac_id","b_dysentery")) %>%
+  ungroup() %>%
+  mutate(c_month=as.yearmon(paste(year, month), "%Y %m"),) %>%
+  select(enroll_site,sens1,sens2,sens3,serotype,serogroup,dys_serotype,quad,quad2,biv,starts_with("agegroup"),starts_with("gems"),starts_with("mvs"),clark,maled,c_month,month,year,dysentery,hosp_during_episode,starts_with("culture"),starts_with("tac"),b_factor,b_factor_weight,fac_id) %>%
+  rename(dysentery_culture_pos=culture_pos,
+         dysentery_tac_pos=tac_pos,
+         dysentery_culture_est=culture_est,
+         dysentery_tac_est=tac_est,
+         dysentery_culture_est2=culture_est2,
+         dysentery_tac_est2=tac_est2,
+         dysentery_culture_wt=culture_wt,
+         dysentery_tac_wt=tac_wt,
+         dysentery_culture_wt_sens=culture_wt_sens,
+         dysentery_tac_wt_sens=tac_wt_sens,
+         dysentery_b_factor=b_factor,
+         dysentery_b_factor_weight=b_factor_weight)
+
+combined_inc <- watery_diarrhea %>%
+  select(-culture_wt_old,-tac_wt_old) |> # don't need these
+  full_join(dysentery |> select(-culture_wt_old,-tac_wt_old), by = c("enroll_site","sens1","sens2","sens3","serotype","dys_serotype","serogroup","quad","quad2","biv","dysentery","gems_msd","gems_msd_biv","gems_msd_quad","gems_msd_quad2","mvs","mvs_dys","mvs_dys_biv","mvs_dys_quad","mvs_dys_quad2","gems_shig","clark","maled","agegroup","fac_id","hosp_during_episode","c_month","month","year"))
+
+# Join complete numerator data with denominator, recalculate days of follow-up and child-years at risk, and calculate incidence
+incidence <- denom %>%
+  # TEMP - DUE TO MISSING TAC DATA
+  filter(enroll_site!=8) %>%
+  #left_join(denom %>% filter(enroll_site %notin% c(8,9)) %>%  
+   #                   select(enroll_site, c_agegroup), by = c("enroll_site","c_agegroup")) %>%
+  rename(agegroup=c_agegroup) %>%
+  left_join(combined_inc, by = c("enroll_site","agegroup")) %>%
+  # Create incidence indicators
+  mutate(# reset time for month indicators
+         days=case_when(# Overall facility-specific follow-up time
+                        fac_id==12 & is.na(c_month)                       ~ as.numeric(as.Date("06/20/2024", format="%m/%d/%Y")-as.Date("7/1/2022", format="%m/%d/%Y")+1),
+                        fac_id %in% c(14,15) & is.na(c_month)             ~ as.numeric(as.Date("06/20/2024", format="%m/%d/%Y")-as.Date("6/21/2022", format="%m/%d/%Y")+1),
+                        fac_id %in% c(21,22,24,25,27,29) & is.na(c_month) ~ as.numeric(as.Date("07/31/2024", format="%m/%d/%Y")-as.Date("8/1/2022", format="%m/%d/%Y")+1),
+                        fac_id==31 & is.na(c_month)                       ~ as.numeric(as.Date("08/02/2024", format="%m/%d/%Y")-as.Date("8/3/2022", format="%m/%d/%Y")+1),
+                        fac_id %in% c(41,42,43,44,71,72) & is.na(c_month) ~ as.numeric(as.Date("08/15/2024", format="%m/%d/%Y")-as.Date("8/16/2022", format="%m/%d/%Y")+1),
+                        fac_id %in% c(61,62,63,64,65) & is.na(c_month)    ~ as.numeric(as.Date("08/08/2024", format="%m/%d/%Y")-as.Date("8/9/2022", format="%m/%d/%Y")+1),
+                        fac_id==51 & is.na(c_month)                       ~ as.numeric(as.Date("08/24/2024", format="%m/%d/%Y")-as.Date("9/26/2022", format="%m/%d/%Y")+1),
+                        fac_id==52 & is.na(c_month)                       ~ as.numeric(as.Date("08/24/2024", format="%m/%d/%Y")-as.Date("10/15/2022", format="%m/%d/%Y")+1),
+                        fac_id %in% c(53,56) & is.na(c_month)             ~ as.numeric(as.Date("08/24/2024", format="%m/%d/%Y")-as.Date("8/25/2022", format="%m/%d/%Y")+1),
+                        fac_id==54 & is.na(c_month)                       ~ as.numeric(as.Date("08/24/2024", format="%m/%d/%Y")-as.Date("9/5/2022", format="%m/%d/%Y")+1),
+                        fac_id==55 & is.na(c_month)                       ~ as.numeric(as.Date("08/24/2024", format="%m/%d/%Y")-as.Date("8/30/2022", format="%m/%d/%Y")+1),
+                        # facility and month specific follow-up time for first or last month of enrollment
+                        fac_id %in% c(14,15) & month==6 & year==2022                           ~ 10,
+                        fac_id==31 & month==8 & year==2022                                     ~ 29,
+                        fac_id %in% c(41,42,43,44,71,72) & month==8 & year==2022               ~ 16,
+                        fac_id %in% c(61,62,63,64,65) & month==8 & year==2022                  ~ 23,
+                        fac_id==51 & month==9 & year==2022                                     ~ 6,
+                        fac_id==52 & month==10 & year==2022                                    ~ 17,
+                        fac_id %in% c(53,56) & month==8 & year==2022                           ~ 7,
+                        fac_id==54 & month==9 & year==2022                                     ~ 26,
+                        fac_id==55 & month==8 & year==2022                                     ~ 2,
+                        fac_id %in% c(12,13,14,15) & month==6 & year==2024                     ~ 20,
+                        fac_id==31 & month==8 & year==2024                                     ~ 2,
+                        fac_id %in% c(41,42,43,44,71,72) & month==8 & year==2024               ~ 15,
+                        fac_id %in% c(61,62,63,64,65) & month==8 & year==2024                  ~ 8,
+                        fac_id %in% c(51,52,53,54,55,56) & month==8 & year==2024               ~ 24,
+                        # facility and month-specific follow-up time              
+                        month %in% c(6,9,11,4)                                                 ~ 30,
+                        month %in% c(7,8,10,12,1,3,5)                                          ~ 31,
+                        month==2 & year %in% c(2022,2023)                                      ~ 28,
+                        month==2 & year==2024                                                  ~ 29),
+         child_years=adj_denom*(days/365.256366),
+         # Adjusted incidence calculation - by type of diarrhea
+         adj_watery_culture   =ifelse(is.na(watery_culture_wt),0,   ((watery_culture_wt*watery_b_factor_weight*100)/child_years)),
+         adj_dysentery_culture=ifelse(is.na(dysentery_culture_wt),0,((dysentery_culture_wt*dysentery_b_factor_weight*100)/child_years)),
+         adj_watery_tac       =ifelse(is.na(watery_tac_wt),0,       ((watery_tac_wt*watery_b_factor_weight*100)/child_years)),
+         adj_dysentery_tac    =ifelse(is.na(dysentery_tac_wt),0,    ((dysentery_tac_wt*dysentery_b_factor_weight*100)/child_years)),
+         # enrollment-adjusted incidence - by type of diarrhea
+         enr_adj_watery_culture   =ifelse(is.na(watery_culture_est),0,   ((watery_culture_est*watery_b_factor_weight*100)/child_years)),
+         enr_adj_dysentery_culture=ifelse(is.na(dysentery_culture_est),0,((dysentery_culture_est*dysentery_b_factor_weight*100)/child_years)),
+         enr_adj_watery_tac       =ifelse(is.na(watery_tac_est),0,       ((watery_tac_est*watery_b_factor_weight*100)/child_years)),
+         enr_adj_dysentery_tac    =ifelse(is.na(dysentery_tac_est),0,    ((dysentery_tac_est*dysentery_b_factor_weight*100)/child_years)),
+         # enrollment- and health facility adjusted incidence - by type of diarrhea
+         clinic_adj_watery_culture   =ifelse(is.na(watery_culture_est2),0,   ((watery_culture_est2*watery_b_factor_weight*100)/child_years)),
+         clinic_adj_dysentery_culture=ifelse(is.na(dysentery_culture_est2),0,((dysentery_culture_est2*dysentery_b_factor_weight*100)/child_years)),
+         clinic_adj_watery_tac       =ifelse(is.na(watery_tac_est2),0,       ((watery_tac_est2*watery_b_factor_weight*100)/child_years)),
+         clinic_adj_dysentery_tac    =ifelse(is.na(dysentery_tac_est2),0,    ((dysentery_tac_est2*dysentery_b_factor_weight*100)/child_years)),
+         # Crude incidence - by type of diarrhea
+         crude_watery_culture   =ifelse(is.na(watery_culture_est),0,   ((watery_culture_est*100)/child_years)),
+         crude_dysentery_culture=ifelse(is.na(dysentery_culture_est),0,((dysentery_culture_est*100)/child_years)),
+         crude_watery_tac       =ifelse(is.na(watery_tac_est),0,       ((watery_tac_est*100)/child_years)),
+         crude_dysentery_tac    =ifelse(is.na(dysentery_tac_est),0,    ((dysentery_tac_est*100)/child_years)),
+         # Adjusted incidence calculation - by type of diarrhea (SENSITIVITY ANALYSIS ONLY INCLUDE 7 DAYS OF)
+         sens_watery_culture   =ifelse(is.na(watery_culture_wt_sens),0,   ((watery_culture_wt_sens*watery_b_factor_weight*100)/child_years)),
+         sens_dysentery_culture=ifelse(is.na(dysentery_culture_wt_sens),0,((dysentery_culture_wt_sens*dysentery_b_factor_weight*100)/child_years)),
+         sens_watery_tac       =ifelse(is.na(watery_tac_wt_sens),0,       ((watery_tac_wt_sens*watery_b_factor_weight*100)/child_years)),
+         sens_dysentery_tac    =ifelse(is.na(dysentery_tac_wt_sens),0,    ((dysentery_tac_wt_sens*dysentery_b_factor_weight*100)/child_years)),
+         # Crude, adjusted and enrollment-adjusted overall shigella incidence
+         crude_culture=crude_watery_culture+crude_dysentery_culture,
+         enr_adj_culture=enr_adj_watery_culture+enr_adj_dysentery_culture,
+         clinic_adj_culture=clinic_adj_watery_culture+clinic_adj_dysentery_culture,
+         adj_culture=adj_watery_culture+adj_dysentery_culture,
+         sens_culture=sens_watery_culture+sens_dysentery_culture,
+         # For TAC - add in adjustment due to missing sample results         
+         crude_tac=crude_watery_tac+crude_dysentery_tac,
+         enr_adj_tac=enr_adj_watery_tac+enr_adj_dysentery_tac, 
+         clinic_adj_tac=clinic_adj_watery_tac+clinic_adj_dysentery_tac,
+         adj_tac=adj_watery_tac+adj_dysentery_tac,
+         sens_tac=sens_watery_tac+sens_dysentery_tac)
+
+# Split by culture and tac and sum facilities to get country-specific incidence
+  # First calculate watery-diarrhea specific and dysentery-specific incidence at the facility-level by culture, then sum to get site-specific estimates
+  country_culture <- incidence %>%
+    mutate(total_culture=ifelse(is.na(watery_culture_pos) & !is.na(dysentery_culture_pos),dysentery_culture_pos,
+                         ifelse(!is.na(watery_culture_pos) & is.na(dysentery_culture_pos),watery_culture_pos,
+                                   watery_culture_pos+dysentery_culture_pos)),
+           country=ifelse(enroll_site==1,"Bangladesh",
+                   ifelse(enroll_site==2,"Kenya",
+                   ifelse(enroll_site==3,"Malawi",
+                   ifelse(enroll_site==4,"Mali",
+                   ifelse(enroll_site==5,"Pakistan",
+                   ifelse(enroll_site==6,"Peru",
+                   ifelse(enroll_site==7,"The Gambia"," "))))))),
+           dysentery_culture=ifelse(is.na(dysentery_culture_pos),0,dysentery_culture_pos),
+           watery_culture=ifelse(is.na(watery_culture_pos),0,watery_culture_pos)) |>
+    rename(b_dysentery=dysentery) |>
+    group_by(country,sens1,sens2,sens3,serogroup,serotype,dys_serotype,quad,quad2,biv,gems_msd,gems_msd_biv,gems_msd_quad,gems_msd_quad2,gems_shig,mvs,mvs_dys,mvs_dys_biv,mvs_dys_quad,mvs_dys_quad2,clark,maled,agegroup,,c_month,hosp_during_episode,b_dysentery) %>%
+    summarise(watery    =sum(watery_culture),
+              dysentery =sum(dysentery_culture),
+              total     =sum(total_culture),
+              crude     =sum(crude_culture),
+              enr_adj   =sum(enr_adj_culture),
+              clinic_adj=sum(clinic_adj_culture),
+              adj       =sum(adj_culture),
+              sens      =sum(sens_culture)) 
+   
+  # First calculate watery-diarrhea specific and dysentery-specific incidence at the facility-level by TAC, and then su across facilities to get country totals
+  country_tac <- incidence %>%
+    mutate(total_tac=ifelse(is.na(watery_tac_pos) & !is.na(dysentery_tac_pos),dysentery_tac_pos,
+                           ifelse(!is.na(watery_tac_pos) & is.na(dysentery_tac_pos),watery_tac_pos,
+                                   watery_tac_pos+dysentery_tac_pos)),
+           country=ifelse(enroll_site==1,"Bangladesh",
+                   ifelse(enroll_site==2,"Kenya",
+                   ifelse(enroll_site==3,"Malawi",
+                   ifelse(enroll_site==4,"Mali",
+                   ifelse(enroll_site==5,"Pakistan",
+                   ifelse(enroll_site==6,"Peru",
+                   ifelse(enroll_site==7,"The Gambia"," "))))))),
+           dysentery_tac=ifelse(is.na(dysentery_tac_pos),0,dysentery_tac_pos),
+           watery_tac=ifelse(is.na(watery_tac_pos),0,watery_tac_pos),
+           total_tac=ifelse(is.na(total_tac),0,total_tac)) |>
+    rename(b_dysentery=dysentery) |>
+    group_by(country,sens1,sens2,sens3,serogroup,dys_serotype,serotype,quad,quad2,biv,gems_msd,gems_msd_biv,gems_msd_quad,gems_msd_quad2,gems_shig,mvs,mvs_dys,mvs_dys_biv,mvs_dys_quad,mvs_dys_quad2,clark,maled,agegroup,c_month,hosp_during_episode,b_dysentery) %>%
+    summarise(watery    =sum(watery_tac),
+              dysentery =sum(dysentery_tac),
+              total     =sum(total_tac),
+              crude     =sum(crude_tac),
+              enr_adj   =sum(enr_adj_tac),
+              clinic_adj=sum(clinic_adj_tac),
+              adj       =sum(adj_tac),
+              sens      =sum(sens_tac))
+
+# Create total estimates
+# FIRST, pull out raw numbers of positives by watery diarrhea and dysentery and merge
+watery_diarrhea_total <- numerator %>%
+  subset(b_dysentery==0 & enroll_site==8) %>%
+  ungroup() %>%
+  mutate(c_month=as.yearmon(paste(year, month), "%Y %m")) %>%
+  select(enroll_site,sens1,sens2,sens3,serotype,serogroup,dys_serotype,quad,quad2,biv,starts_with("agegroup"),starts_with("gems"),starts_with("mvs"),clark,maled,culture_pos,tac_pos,c_month,hosp_during_episode,dysentery)  %>%
+  rename(watery_culture=culture_pos,
+         watery_tac=tac_pos)
+
+dysentery_total <-  numerator %>%
+  subset(b_dysentery==1 & enroll_site==8) %>%
+  ungroup() %>%
+  mutate(c_month=as.yearmon(paste(year, month), "%Y %m")) %>%
+  select(enroll_site,sens1,sens2,sens3,serotype,serogroup,dys_serotype,quad,quad2,biv,starts_with("agegroup"),starts_with("gems"),starts_with("mvs"),clark,maled,culture_pos,tac_pos,c_month,hosp_during_episode,dysentery) %>%
+  rename(dysentery_culture=culture_pos,
+         dysentery_tac=tac_pos)
+
+combined <- watery_diarrhea_total %>%
+  full_join(dysentery_total, by = c("enroll_site","sens1","sens2","sens3","serotype","dys_serotype","serogroup","quad","quad2","biv","gems_msd","gems_msd_biv","gems_msd_quad","gems_msd_quad2","gems_shig","mvs","mvs_dys","mvs_dys_biv","mvs_dys_quad","mvs_dys_quad2","clark","maled","agegroup","c_month","hosp_during_episode","dysentery")) |>
+  rename(b_dysentery=dysentery)
+
+# Next = create weight for each site
+denom_sum <- denom %>%
+  filter (enroll_site %notin% c(8)) %>% #remove totals used in appendices
+  rename(agegroup=c_agegroup) %>%
+  mutate(start_date=ifelse(enroll_site==1, as.Date("2022-06-21", format="%Y-%m-%d"),
+                    ifelse(enroll_site==2, as.Date("2022-08-01", format="%Y-%m-%d"),
+                    ifelse(enroll_site==3, as.Date("2022-08-03", format="%Y-%m-%d"),
+                    ifelse(enroll_site==4, as.Date("2022-08-16", format="%Y-%m-%d"),
+                    ifelse(enroll_site==5, as.Date("2022-08-25", format="%Y-%m-%d"),
+                    ifelse(enroll_site==6, as.Date("2022-08-09", format="%Y-%m-%d"),
+                    ifelse(enroll_site==7, as.Date("2022-08-16", format="%Y-%m-%d"),NA))))))),
+         end_date=ifelse(enroll_site==1, as.Date("2024-06-20", format="%Y-%m-%d"),
+                  ifelse(enroll_site==2, as.Date("2024-07-31", format="%Y-%m-%d"),
+                  ifelse(enroll_site==3, as.Date("2024-08-02", format="%Y-%m-%d"),
+                  ifelse(enroll_site==4, as.Date("2024-08-15", format="%Y-%m-%d"),
+                  ifelse(enroll_site==5, as.Date("2024-08-24", format="%Y-%m-%d"),
+                  ifelse(enroll_site==6, as.Date("2024-08-08", format="%Y-%m-%d"),
+                  ifelse(enroll_site==7, as.Date("2024-08-15", format="%Y-%m-%d"),NA))))))),
+         days=as.numeric(end_date-start_date+1),
+         years=days/365.24,
+         child_years=adj_denom*years) %>%
+  group_by(agegroup) %>%
+  mutate(denom_total = sum(child_years),
+         denom_weight  = child_years/denom_total,
+         country=ifelse(enroll_site==1,"Bangladesh",
+                 ifelse(enroll_site==2,"Kenya",
+                 ifelse(enroll_site==3,"Malawi",
+                 ifelse(enroll_site==4,"Mali",
+                 ifelse(enroll_site==5,"Pakistan",
+                 ifelse(enroll_site==6,"Peru",
+                 ifelse(enroll_site==7,"The Gambia"," ")))))))) %>%
+  select(country, agegroup,denom_total,denom_weight, child_years)
+  
+# Now run weighted average separately for culture and TAC
+culture_weight <- country_culture %>%
+  ungroup() |>
+  group_by(sens1,sens2,sens3,serotype,dys_serotype,serogroup,quad,quad2,biv,agegroup,gems_msd,gems_msd_biv,gems_msd_quad,gems_msd_quad2,gems_shig,mvs,mvs_dys,mvs_dys_biv,mvs_dys_quad,mvs_dys_quad2,clark,maled,c_month,hosp_during_episode,b_dysentery) %>%
+  summarise(crude     =mean(crude),
+            enr_adj   =mean(enr_adj),
+            clinic_adj=mean(clinic_adj),
+            adj       =mean(adj),
+            sens      =mean(sens)) %>%
+  mutate(country="Total")
+
+tac_weight <- country_tac %>%
+  group_by(serotype,sens1,sens2,sens3,dys_serotype,serogroup,quad,quad2,biv,agegroup,gems_msd,gems_msd_biv,gems_msd_quad,gems_msd_quad2,gems_shig,mvs,mvs_dys,mvs_dys_biv,mvs_dys_quad,mvs_dys_quad2,c_month,clark,maled,hosp_during_episode,b_dysentery) %>%
+  summarise(crude     =mean(crude),
+            enr_adj   =mean(enr_adj),
+            clinic_adj=mean(clinic_adj),
+            adj       =mean(adj),
+            sens      =mean(sens) ) %>%
+  mutate(country="Total")
+
+# Finally, merge with raw estimates to get final dataset
+overall_culture <- combined %>%
+  rename(watery=watery_culture,
+         dysentery=dysentery_culture) %>%
+  left_join(culture_weight, by= c("dys_serotype","sens1","sens2","sens3","serotype","serogroup","quad","quad2","biv","gems_msd","gems_msd_biv","gems_msd_quad","gems_msd_quad2","gems_shig","mvs","mvs_dys","mvs_dys_biv","mvs_dys_quad","mvs_dys_quad2","clark","maled","agegroup","c_month","hosp_during_episode","b_dysentery")) %>%
+  mutate(total=watery+dysentery) %>%
+  select(country,sens1,sens2,sens3,watery,dysentery,total,dys_serotype,serotype,serogroup,biv,quad,quad2,starts_with("agegroup"),starts_with("gems"),starts_with("mvs"),clark,maled,c_month,hosp_during_episode,b_dysentery,crude,enr_adj,clinic_adj,adj,sens) %>%
+  filter(agegroup!=99 | is.na(agegroup)) 
+
+overall_tac <- combined %>%
+  rename(watery=watery_tac,
+         dysentery=dysentery_tac) %>%
+  left_join(tac_weight, by= c("sens1","sens2","sens3","dys_serotype","serotype","serogroup","quad","quad2","biv","gems_msd","gems_msd_biv","gems_msd_quad","gems_msd_quad2","gems_shig","mvs","mvs_dys","mvs_dys_biv","mvs_dys_quad","mvs_dys_quad2","clark","maled","agegroup","c_month","hosp_during_episode","b_dysentery")) %>%
+  mutate(total=ifelse(is.na(watery) & !is.na(dysentery),dysentery,
+               ifelse(!is.na(watery) & is.na(dysentery),watery,watery+dysentery))) %>%
+  select(country,sens1,sens2,sens3,watery,dysentery,total,dys_serotype,serotype,serogroup,biv,quad,quad2,starts_with("agegroup"),starts_with("gems"),starts_with("mvs"),clark,maled,c_month,hosp_during_episode,b_dysentery,crude,enr_adj,clinic_adj,adj,sens) %>%
+  filter(agegroup!=99 | is.na(agegroup)) 
+
+# Pull out raw cases counts
+watery_raw_culture <- country_culture %>%
+  filter(b_dysentery==0) %>%
+  ungroup() |>
+  select(country,watery)
+
+dysentery_raw_culture <- country_culture %>%
+  filter(b_dysentery==1) %>%
+  ungroup() |>
+  mutate(dysentery2=watery+dysentery) |> # this is weird but its because b_dysentery as an indicator is stratified by screening dysentery assessment
+  select(country,dysentery2)
+
+raw_culture <- watery_raw_culture |>
+  left_join(dysentery_raw_culture, by=c("country")) |>
+  mutate(total=dysentery2+watery)
+
+raw_culture_total <- raw_culture %>%
+  mutate(country="Total") |>
+  group_by(country) |>
+  summarise(watery=sum(watery),
+            dysentery2=sum(dysentery2),
+            total=sum(total))
+
+watery_raw_tac <- country_tac %>%
+  filter(b_dysentery==0) %>%
+  ungroup() |>
+  select(country,watery)
+
+dysentery_raw_tac <- country_tac %>%
+  filter( b_dysentery==1) %>%
+  ungroup() |>
+  mutate(dysentery2=watery+dysentery) |># this is weird but its because b_dysentery as an indicator is stratified by screening dysentery assessment
+  select(country,dysentery2)
+
+raw_tac <- watery_raw_tac |>
+  left_join(dysentery_raw_tac, by=c("country")) |>
+  mutate(total=dysentery2+watery)
+
+raw_tac_total <- raw_tac %>%
+  mutate(country="Total") |>
+  group_by(country) |>
+  summarise(watery=sum(watery),
+            dysentery2=sum(dysentery2),
+            total=sum(total))
+```
+
+```{r diarrhea_incidence, echo=FALSE, include=TRUE}
+# Create watery and dysentery datasets - merge in a and b factors
+watery_diarrhea2 <- diarrhea_numerator %>%
+  subset(b_dysentery==0 & (!is.na(fac_id))) %>%
+  left_join(b_factor %>% filter(!is.na(fac_id) | enroll_site==8), by = c("enroll_site", "fac_id","b_dysentery")) %>%
+  ungroup() |>
+  select(enroll_site,b_factor,b_factor_weight,fac_id, starts_with("diarrhea_")) %>%
+  rename(watery_pos=diarrhea_pos,
+         watery_est=diarrhea_est,
+         watery_weight=diarrhea_weight,
+         watery_b_factor=b_factor,
+         watery_b_factor_weight=b_factor_weight)
+
+dysentery2 <-  diarrhea_numerator %>%
+  subset(b_dysentery==1 & (!is.na(fac_id))) %>%
+  left_join(b_factor %>% filter(!is.na(fac_id) | enroll_site==8), by = c("enroll_site", "fac_id","b_dysentery")) %>%
+  ungroup() |>
+  select(enroll_site,starts_with("diarrhea"),b_factor,b_factor_weight,fac_id) %>%
+  rename(dysentery_pos=diarrhea_pos,
+         dysentery_est=diarrhea_est,
+         dysentery_weight=diarrhea_weight,
+         dysentery_b_factor=b_factor,
+         dysentery_b_factor_weight=b_factor_weight)
+
+combined_inc2 <- watery_diarrhea2 %>%
+  full_join(dysentery2, by = c("enroll_site","fac_id"))
+
+# Join complete numerator data with denominator, recalculate days of follow-up and child-years at risk, and calculate incidence
+diarrhea_incidence <- denom %>%
+  filter(enroll_site!=8 & is.na(c_agegroup)) %>%
+  ungroup() |>
+  left_join(combined_inc2, by = c("enroll_site")) %>%
+  ungroup() |>
+  # Create incidence indicators
+  mutate(# reset time for month indicators
+         days=case_when(# Overall facility-specific follow-up time
+                        fac_id==12                        ~ as.numeric(as.Date("06/20/2024", format="%m/%d/%Y")-as.Date("7/1/2022", format="%m/%d/%Y")+1),
+                        fac_id %in% c(14,15)              ~ as.numeric(as.Date("06/20/2024", format="%m/%d/%Y")-as.Date("6/21/2022", format="%m/%d/%Y")+1),
+                        fac_id %in% c(21,22,24,25,27,29)  ~ as.numeric(as.Date("07/31/2024", format="%m/%d/%Y")-as.Date("8/1/2022", format="%m/%d/%Y")+1),
+                        fac_id==31                        ~ as.numeric(as.Date("08/02/2024", format="%m/%d/%Y")-as.Date("8/3/2022", format="%m/%d/%Y")+1),
+                        fac_id %in% c(41,42,43,44,71,72)  ~ as.numeric(as.Date("08/15/2024", format="%m/%d/%Y")-as.Date("8/16/2022", format="%m/%d/%Y")+1),
+                        fac_id %in% c(61,62,63,64,65)     ~ as.numeric(as.Date("08/08/2024", format="%m/%d/%Y")-as.Date("8/9/2022", format="%m/%d/%Y")+1),
+                        fac_id==51                        ~ as.numeric(as.Date("08/24/2024", format="%m/%d/%Y")-as.Date("9/26/2022", format="%m/%d/%Y")+1),
+                        fac_id==52                        ~ as.numeric(as.Date("08/24/2024", format="%m/%d/%Y")-as.Date("10/15/2022", format="%m/%d/%Y")+1),
+                        fac_id %in% c(53,56)              ~ as.numeric(as.Date("08/24/2024", format="%m/%d/%Y")-as.Date("8/25/2022", format="%m/%d/%Y")+1),
+                        fac_id==54                        ~ as.numeric(as.Date("08/24/2024", format="%m/%d/%Y")-as.Date("9/5/2022", format="%m/%d/%Y")+1),
+                        fac_id==55                        ~ as.numeric(as.Date("08/24/2024", format="%m/%d/%Y")-as.Date("8/30/2022", format="%m/%d/%Y")+1)),
+         child_years=adj_denom*(days/365.256366),
+         # Adjusted incidence calculation - by type of diarrhea
+         adj_watery_diarrhea   =ifelse(is.na(watery_weight),0,   ((watery_weight*watery_b_factor_weight*100)/child_years)),
+         adj_dysentery_diarrhea=ifelse(is.na(dysentery_weight),0,((dysentery_weight*dysentery_b_factor_weight*100)/child_years)),
+         # enrollment-adjusted incidence - by type of diarrhea
+         enr_adj_watery_diarrhea   =ifelse(is.na(watery_pos),0,   ((watery_pos*watery_b_factor_weight*100)/child_years)),
+         enr_adj_dysentery_diarrhea=ifelse(is.na(dysentery_pos),0,((dysentery_pos*dysentery_b_factor_weight*100)/child_years)),
+         # enrollment- and health facility adjusted incidence - by type of diarrhea
+         clinic_adj_watery_diarrhea   =ifelse(is.na(watery_est),0,   ((watery_est*watery_b_factor_weight*100)/child_years)),
+         clinic_adj_dysentery_diarrhea=ifelse(is.na(dysentery_est),0,((dysentery_est*dysentery_b_factor_weight*100)/child_years)),
+         # Crude incidence - by type of diarrhea
+         crude_watery_diarrhea   =ifelse(is.na(watery_pos),0,   ((watery_pos*100)/child_years)),
+         crude_dysentery_diarrhea=ifelse(is.na(dysentery_pos),0,((dysentery_pos*100)/child_years)),
+         # Crude, adjusted and enrollment-adjusted overall shigella incidence
+         crude_diarrhea=crude_watery_diarrhea+crude_dysentery_diarrhea,
+         enr_adj_diarrhea=enr_adj_watery_diarrhea+enr_adj_dysentery_diarrhea,
+         clinic_adj_diarrhea=clinic_adj_watery_diarrhea+clinic_adj_dysentery_diarrhea,
+         adj_diarrhea=adj_watery_diarrhea+adj_dysentery_diarrhea) |>
+  select(-c_agegroup)
+
+# sum to get site-specific estimates
+country_diarrhea <- diarrhea_incidence %>%
+  mutate(country=ifelse(enroll_site==1,"Bangladesh",
+                 ifelse(enroll_site==2,"Kenya",
+                 ifelse(enroll_site==3,"Malawi",
+                 ifelse(enroll_site==4,"Mali",
+                 ifelse(enroll_site==5,"Pakistan",
+                 ifelse(enroll_site==6,"Peru",
+                 ifelse(enroll_site==7,"The Gambia"," ")))))))) %>%
+  group_by(country) %>%
+  summarise(watery    =sum(watery_pos),
+            dysentery =sum(dysentery_pos),
+            total     =sum(watery_pos+dysentery_pos),
+            crude     =sum(crude_diarrhea),
+            enr_adj   =sum(enr_adj_diarrhea),
+            clinic_adj=sum(clinic_adj_diarrhea),
+            adj       =sum(adj_diarrhea))
+  
+# Total
+total_diarrhea <- country_diarrhea |>
+  summarise(watery    =sum(watery),
+            dysentery =sum(dysentery),
+            total     =sum(total),
+            crude     =mean(crude),
+            enr_adj   =mean(enr_adj),
+            clinic_adj=mean(clinic_adj),
+            adj       =mean(adj)) |>
+  mutate(country="Total")
+
+diarrhea_final <- bind_rows(country_diarrhea,total_diarrhea)
+```
+
+------------------------------------------------------------------------
+**Primary manuscript tables and figures.**
+```{r fig1_flow}
+# Transcribed from "summary dataset" to "Figure1_20231127"
+```
+
+```{r table1_demographics}
+# Run demographics
+table1_demo <- enroll_data %>%
+  tbl_summary(include = c(total,sex2, agegroup,enr_age_months,mat_edu,care_employ,enroll_ai_num_child,age_exclusive_breastfeeding,wealth_quint),
+              by = country,
+              type = list(wealth_quint ~ "continuous", total ~ "continuous"),
+              statistic = total ~ "{sum}",
+              label = list(total ~ "Total enrolled: N",
+                           sex2 ~ "Female sex: n (%)",
+                           agegroup ~ "Age (months): n (%)",
+                           enr_age_months ~ "Age in months: median (IQR)",
+                           care_employ ~ "Accompanying caregiver employment: n (%)",
+                           mat_edu ~ "Highest maternal education achieved: n (%)",
+                           enroll_ai_num_child ~ "Children <5 years in household: median (IQR)",
+                           age_exclusive_breastfeeding ~ "Months exclusively breastfed: median (IQR)",
+                           wealth_quint ~ "Wealth index: median (IQR)"),
+              digits = list(all_categorical() ~ c(0, 1), all_continuous() ~ 0, all_continuous2() ~ 0)) %>%
+  modify_header(all_stat_cols() ~ "{level}") %>%
+  add_overall(last = TRUE, col_label = "Overall") %>%
+  remove_row_type(type = "missing") %>%
+  modify_footnote(all_stat_cols() ~ NA)
+
+table1_demo  %>%    as_flex_table()
+
+# Run WASH indicators
+table1_wash = enroll_data %>%
+  tbl_summary(include = c(water_factor2, sanitation_factor2),
+              by = country,
+              label = list(water_factor2 ~ "Drinking water source: n (%)",
+                           sanitation_factor2 ~ "Sanitation access: n (%)"),
+              digits = list(all_categorical() ~ c(0, 1))) %>%
+  modify_header(all_stat_cols() ~ "{level}") %>%
+  add_overall(last = TRUE, col_label = "Overall") %>%
+  remove_row_type(type = "missing") %>%
+  modify_footnote(all_stat_cols() ~ NA)
+
+table1_wash  %>%    as_flex_table() 
+
+# Run clinical and severity indicators
+table1_clin = enroll_data %>%
+  tbl_summary(include = c(dysentery,dehydration,#aav,
+                          rota_aav,careseek_factor,hosp_during_episode,days_diarrhea,
+                          mvs_score, mvs_classification, mvs_or_dysentery_ind,gems_msd, gems_shig_score, gems_shig,clark_score, clark_classification, maled_score, maled_classification),
+              by = country,
+              type = list(gems_shig_score ~ "continuous", maled_score ~ "continuous", days_diarrhea ~ "continuous"),
+              label = list(dysentery ~ "Dysentery: n (%)",
+                           dehydration ~ "Dehydration: n (%)",
+                           #aav ~ "Received age-appropriate vaccinations, per country guidelines",
+                           rota_aav ~ "Received age-appropriate rotavirus vaccine, per country guidelines: n (%)",
+                           careseek_factor ~ "Care-seeking prior to enrollment visit: n (%)",
+                           hosp_during_episode ~ "Hospitalized: n (%)",
+                           days_diarrhea ~ "Duration of diarrhea prior to care-seeking (days): median (IQR)",
+                           mvs_score ~ "Modified Vesikari score (MVS): median (IQR), n (%)",
+                           mvs_or_dysentery_ind ~ "Moderate or severe diarrhea by MVS or dysentery: n (%)",
+                           gems_msd ~ "GEMS: n (%)",
+                           gems_shig_score ~ "GEMS-Shigella score: median (IQR), n (%)",
+                           clark_score ~ "Clark score: median (IQR), n (%)",
+                           maled_score ~ "MAL-ED score: median (IQR), n (%)"),
+              digits = list(mvs_score ~ 0, gems_shig_score ~ 0, clark_score ~ 0, maled_score ~ 0, days_diarrhea ~ 0, all_categorical() ~ c(0, 1))) %>%
+  modify_header(all_stat_cols() ~ "{level}") %>%
+  add_overall(last = TRUE, col_label = "Overall") %>%
+  remove_row_type(c(mvs_classification, gems_shig, clark_classification, maled_classification)) %>%
+  remove_row_type(type = "missing") %>%
+  modify_footnote(all_stat_cols() ~ NA)
+
+table1_clin  %>%    as_flex_table()
+
+# Run anthropometry indicators
+table1_anthro = enroll_data %>%
+  tbl_summary(include = c(stunting_ordered2, wasting_ordered2, underweight_ordered2),
+              by = country,
+              label = list(stunting_ordered2 ~ "Stunting: n (%)", 
+                           wasting_ordered2 ~ "Wasting: n (%)", 
+                           underweight_ordered2 ~ "Underweight: n (%)"),
+              digits = list(all_categorical() ~ c(0, 1))) %>%
+  modify_header(all_stat_cols() ~ "{level}") %>%
+  add_overall(last = TRUE, col_label = "Overall") %>%
+  remove_row_type(type = "missing") %>%
+  modify_footnote(all_stat_cols() ~ NA)
+
+table1_anthro  %>%    as_flex_table()
+
+# Assemble into data frame and add label rows
+table1_titles=data.frame(order=c(0,21.5,27.5,58.5), label=c("Demographics",
+                                                  "Water, Sanitation and Hygiene (WASH) characteristics",
+                                                  "Clinical characteristics",
+                                                  "Anthropometry"))
+
+table1_data_paper <- as.data.frame(tbl_stack(list(table1_demo,table1_wash,table1_clin,table1_anthro))) %>%
+  mutate(order=row_number(),
+         # PUT INTO LANCET FORMAT
+         Bangladesh=gsub("\\.", "·", Bangladesh),
+         Bangladesh=gsub("\\, ", "-", Bangladesh), # temporary
+         Bangladesh=gsub("\\,", "", Bangladesh),
+         Bangladesh=gsub("%", "", Bangladesh),
+         Bangladesh=gsub("\\-", ", ", Bangladesh), # change it back
+         Kenya=gsub("\\.", "·", Kenya),
+         Kenya=gsub("\\, ", "-", Kenya),
+         Kenya=gsub("\\,", "", Kenya),
+         Kenya=gsub("%", "", Kenya),
+         Kenya=gsub("\\-", ", ", Kenya), # change it back
+         Malawi=gsub("\\.", "·", Malawi),
+         Malawi=gsub("\\, ", "-",  Malawi),
+         Malawi=gsub("\\,", "",  Malawi),
+         Malawi=gsub("%", "",    Malawi),
+         Malawi=gsub("\\-", ", ", Malawi), # change it back
+         Mali=gsub("\\.", "·", Mali),
+         Mali=gsub("\\, ", "-", Mali),
+         Mali=gsub("\\,", "",  Mali),
+         Mali=gsub("%", "",    Mali),
+         Mali=gsub("\\-", ", ", Mali), # change it back
+         Pakistan=gsub("\\.", "·", Pakistan),
+         Pakistan=gsub("\\, ", "-", Pakistan),
+         Pakistan=gsub("\\,", "",  Pakistan),
+         Pakistan=gsub("%", "",    Pakistan),
+         Pakistan=gsub("\\-", ", ", Pakistan), # change it back
+         Peru=gsub("\\.", "·", Peru),
+         Peru=gsub("\\, ", "-", Peru),
+         Peru=gsub("\\,", "",  Peru),
+         Peru=gsub("%", "",    Peru),
+         Peru=gsub("\\-", ", ", Peru), # change it back
+         `The Gambia`=gsub("\\.", "·", `The Gambia`),
+         `The Gambia`=gsub("\\, ", "-", `The Gambia`),
+         `The Gambia`=gsub("\\,", "",  `The Gambia`),
+         `The Gambia`=gsub("%", "",    `The Gambia`),
+         `The Gambia`=gsub("\\-", ", ", `The Gambia`), # change it back
+         Overall=gsub("\\.", "·",  Overall),
+         Overall=gsub("\\, ", "-", Overall),
+         Overall=gsub("\\,", "",   Overall),
+         Overall=gsub("%", "",     Overall),
+         Overall=gsub("\\-", ", ", Overall)) |> # change it back
+  rename(label=`**Characteristic**`) %>%
+  bind_rows(table1_titles) %>%
+  arrange(order) %>%
+  select(-order)
+
+# Run Table
+table1_demo <-qflextable(table1_data_paper) %>%
+  set_header_labels(         # Rename the columns in original header row
+    label = " ", 
+    Bangladesh = "Bangladesh",                  
+    Kenya = "Kenya",
+    Malawi = "Malawi",
+    Mali = "Mali",
+    Pakistan = "Pakistan",
+    Peru = "Peru",
+    `The Gambia` = "The Gambia",
+    Overall = "Total") |>
+  # Add foonotes
+  footnote(i = 1, j = 1,value = as_paragraph("HAZ: height for age Z-score, IQR: interquartile range, JMP: WHO/UNICEF Joint Monitoring Programme for Water Supply, Sanitation and Hygiene, LAZ: length for age Z-score, LSD: less-sever-diarrhea, MSD: moderate-to-severe diarrhea, MUAC: mid-upper arm circumference, MVS: modified Vesikari score, WAZ: weight for age Z-score, WHO: world health organization, WLZ: weight for length Z-score."),ref_symbols = " ",part = "body", inline = FALSE) %>%
+  footnote(i = 24, j = 1,value = as_paragraph(" Drinking water source was classified according to the WHO/UNICEF Joint Monitoring Programme for Water Supply, Sanitation and Hygiene (JMP) as unimproved (water from a river, dam, lake, pond, stream, canal or irrigation channel and unprotected wells or springs) or improved (water piped into the dwelling, yard or plot, public taps or standpipes, tube wells or boreholes, protected dug wells or springs, rainwater collection, water from a tanker-truck, water from a cart with a small tank or drum, filtered or unfiltered water kiosks, bottled water, or sachet water."),ref_symbols = "*",part = "body", inline = FALSE) %>%
+  footnote(i = 28, j = 1,value = as_paragraph(" Sanitation access was classified according to the JMP as unimproved (no facility, bush or field, flush toilets to elsewhere, pit latrines without slab floor, bucket toilets or hanging toilets/latrines), or improved (flush toilets to piped sewer systems, septic tanks or unknown location, ventilated improved pit latrines, pit latrines with slab floors, or composting toilets)."),ref_symbols = "†",part = "body", inline = FALSE) %>%
+  footnote(i = 31, j = 1,value = as_paragraph(" Blood in the stool as reported by caregiver during the diarrheal episode or by clinical diagnosis."),ref_symbols = "‡",part = "body", inline = FALSE) %>%
+  footnote(i = 32, j = 1,value = as_paragraph(" Based on WHO criteria. Severe dehydration = At least two of the following signs: lethargy, abnormally sunken eyes, drinks poorly, skin pinch >2 seconds. Some dehydration = At least two of the following signs: restless/irritable, abnormally sunken eyes, drinks eagerly, skin pinch 1-2 seconds."),ref_symbols = "§",part = "body", inline = FALSE) %>%
+  footnote(i = 36, j = 1,value = as_paragraph(" Two (Kenya and Mali) or three (Malawi, Pakistan Peru and The Gambia) documented doses by age six months. Rotavirus vaccine is not part of the national immunization schedule."),ref_symbols = "‖",part = "body", inline = FALSE) %>%
+  footnote(i = 41, j = 1,value = as_paragraph(" Defined as an overnight stay (child was on the ward from at least 12am to 6am or self-discharged prior to that timeframe."),ref_symbols = "¶",part = "body", inline = FALSE) %>%
+  footnote(i = 43, j = 1,value = as_paragraph(" Defined as in PATH Vesikari Clinical Severity Scoring System Manual: Duration of diarrhea: 1-4 days (1 point), 5 days (2 points) ≥6 days (3 points); Max # of stool in 24 hour period: 1-3 (1 point), 4-5 (2 points), ≥6 (3 points); Duration of vomiting: 1 day (1 point), 2 days (2 points), ≥3 days (3 points); max # of vomiting episodes in 24 hour period: 1 (1 point), 2-4 (2 points), ≥5 (3 points); Axillary temperature 36·6-37·9°C (1 point), 38·0-38·4°C (2 points), ≥38·5°C (3 points); dehydration 1-5% (2 points), ≥6% (3 points); treatment: rehydration (1 point), hospitalization (2 points)."),ref_symbols = "**",part = "body", inline = FALSE) %>%
+  footnote(i = 47, j = 1,value = as_paragraph(" Defined as in Pavlinac, Vaccines, 2022 as a MVS of 9+ or presence of visible blood in stool."),ref_symbols = "††",part = "body", inline = FALSE) %>%
+  footnote(i = 48, j = 1,value = as_paragraph(" Defined as in Kotloff, Lancet GH, 2019. Moderate-to-severe diarrhea (MSD) defined as presenting to a health facility with diarrhea and severe or some dehydration (by WHO criteria), visible blood in stool, or inpatient admission. Less-severe-diarrhea (LSD) defined as presenting to a health facility without MSD."),ref_symbols = "‡‡",part = "body", inline = FALSE) %>%
+  footnote(i = 51, j = 1,value = as_paragraph(" Defined as in Pavlinac, CID, 2021. Duration of diarrhea through day of presentation: 1-3 days (0 points), 4-5 days (2 points), ≥6 days (3 points); WHO-defined dehydration categories: severe (8 points), some (4 points), none (0 points); inpatient admission (5 points)."),ref_symbols = "§§",part = "body", inline = FALSE) %>%
+  footnote(i = 55, j = 1,value = as_paragraph(" Defined as in Clark, JID, 1988. Duration of diarrhea: 1-4 days (1 point), 5-7 days (2 points) >7 days 3 points); Max # of stool in 24 hour period: 2-4 (1 point), 5-7 (2 points), >7 (3 points); Duration of vomiting: 2 days (1 point), 3-5 days (2 points), >5 days (3 points); max # of vomiting episodes in 24 hour period: 1-3 (1 point), 4-6 (2 points), >6 (3 points); Duration of reported fever: 1-2 days (1 point), 3-4 days (2 points), ≥5 days (3 points); Rectal temperature 38·0-38·2°C (1 point), 38·3-38·7°C (2 points), ≥38·8°C (3 points); behavioral signs: Irritable/less playful (1 point), Lethargic/listless (2 points), Seizures (3 points)."),ref_symbols = "‖‖‖",part = "body", inline = FALSE) %>%
+  footnote(i = 58, j = 1,value = as_paragraph(" Defined as in Lee, BMJ Open, 2014: Duration of diarrhea: 2-4 days (1 point), 5-7 days (2 points), ≥8 days (3 points); Max # of stool in 24 hour period: <5 loose stools/24 hours (1 point), 5-7 loose stools/24 hours (2 points), ≥8 stools/24 hours (3 points); Duration of vomiting: 1 day (1 point), 2 days (2 points), ≥3 days (3 points); duration of reported fever: 1+ days (1 point); Confirmed temperature: ≥37·5°C (confirmed by field worker) (2 points); Dehydration: Some (2 points), severe (3 points)."),ref_symbols = "¶¶",part = "body", inline = FALSE) %>%
+  footnote(i = 62, j = 1,value = as_paragraph(" Severe stunting: HAZ/LAZ < -3, Moderate stunting: -3 ≤ HAZ/LAZ < -2. Does not sum to total as n=13 participants were missing HAZ/LAZ data."),ref_symbols = "***",part = "body", inline = FALSE) %>%
+  footnote(i = 65, j = 1,value = as_paragraph(" Severe wasting: WLZ < -3 or MUAC < 11·5, Moderate wasting: -3 ≤ WLZ < -2 or 11·5 ≤ MUAC < 12·5. Does not sum to total as n=44 participants were missing WLZ/MUAC data."),ref_symbols = "†††",part = "body", inline = FALSE) %>% 
+  footnote(i = 69, j = 1,value = as_paragraph(" Severely underweight: WAZ < -3, Moderately underweight: -3 ≤ WAZ < -2. Does not sum to total as n=4 participants were missing WAZ data."),ref_symbols = "‡‡‡",part = "body", inline = FALSE) %>%
+  # Set fonts
+  font(fontname = "Arial Narrow", part= "all") %>%
+  fontsize(size = 5, part = "all") %>%
+  fontsize(size = 7, part = "header") %>%
+  # Fill in cells
+  bg(i = c(1,23,30,61), part = "body", bg = "grey") %>% # add gray background
+  # Add lines
+  hline_top(border = border_style2, part = "header") %>%
+  hline_top(border = border_style2, part = "body") %>%
+  hline(part = "body", i = c(1,2,3,9,10,15,19:23,26,29,30,31,35,36,40,41,42,46,47,50,54,57,60,61,64,68,72), border = border_style2) %>% # black line
+  # Align cells
+  valign(i = 1, valign = "bottom", part = "header") %>%
+  flextable::align(align = "center", j = c(2:9), part = "all") %>%     
+  bold(i = c(1:4,10,11,16,20:24,27,30:32,36,37,41:43,47,48,51,55,58,61,62,65,69), j=1, bold = TRUE, part = "body")  %>%  
+  bold(i = 1, bold = TRUE, part = "header")  %>%  
+  # Column width
+  width(j = 1, width=1.7, unit = "in") %>%
+  width(j = 2:9, width=0.6, unit = "in") %>%
+  # Line spacing 
+  line_spacing(space = 1, part = "all") %>% 
+  padding(padding = 0, part = "all") %>%
+  # Fill in symbols
+  compose(i = 36, j = 2, part = "body",value = as_paragraph("-"))
+table1_demo
+
+#Export
+save_as_docx(table1_demo, values = NULL, path=paste0("./Primary manuscript/Table1_",today,".docx"), pr_section = sect_properties2)
+```
+
+```{r fig2_prevalence}
+# pull out shigella prevalences
+shigella_prev_tac <- oth_path |>
+  filter(cat==1 & target=="Shigella EIEC") |>
+  mutate(
+    ci = binom::binom.confint(n, N, conf.level = 0.95, method = "wilson"),
+    lower = ci$lower * 100,
+    upper = ci$upper * 100
+  ) %>%
+  mutate(country=factor(case_when(groupid=="Bangladesh" ~ 1,
+                                 groupid=="Kenya" ~ 2,
+                                 groupid=="Malawi" ~ 3,
+                                 groupid=="Mali" ~ 4,
+                                 groupid=="Pakistan" ~ 5,
+                                 groupid=="Peru" ~ 6,
+                                 groupid=="Gambia" ~ 7,
+                                 groupid=="Total" ~ 8),levels=1:8,labels=c("Bangladesh","Kenya","Malawi","Mali","Pakistan","Peru","The Gambia","Total")),
+         source="qPCR")
+
+shigella_prev_culture <- abx_tab %>%
+  group_by(enroll_site) %>%
+  dplyr::summarise(N=n(),
+                   n=sum(shigella,na.rm=T),
+                   percent=(n/N)*100) |>
+  mutate(
+    ci = binom::binom.confint(n, N, conf.level = 0.95, method = "wilson"),
+    lower = ci$lower * 100,
+    upper = ci$upper * 100
+  ) %>%
+  mutate(country=factor(case_when(enroll_site==1 ~ 1,
+                                  enroll_site==2 ~ 2,
+                                  enroll_site==3 ~ 3,
+                                  enroll_site==4 ~ 4,
+                                  enroll_site==5 ~ 5,
+                                  enroll_site==6 ~ 6,
+                                  enroll_site==7 ~ 7,
+                                  enroll_site==9 ~ 8),levels=1:8,labels=c("Bangladesh","Kenya","Malawi","Mali","Pakistan","Peru","The Gambia","Total")),
+         source="Culture")
+
+# run combined version
+shigella_prev_data <- bind_rows(shigella_prev_culture,shigella_prev_tac)
+
+figure2_prev <- ggplot(shigella_prev_data |> filter(!is.na(percent)),aes(x=fct_rev(country), y=percent,fill=fct_rev(source),ymin=lower,ymax=upper)) +
+  geom_bar(position="dodge", stat="identity") +
+  geom_errorbar(aes(group=fct_rev(source)),colour="black", position=position_dodge(0.9), width=0.2, size=0.5) +
+  xlab("EFGH country site") +
+  ylab(expression(paste(italic("Shigella")," prevalence (%)"))) +
+  theme(legend.title = element_blank(),
+        legend.text = element_text(size = 6),
+         legend.margin = margin(t = -5),
+        legend.position = "bottom",
+        legend.background = element_blank(),  # Remove legend background
+        panel.border=element_rect(colour = "black", fill=NA, size=1),
+        panel.background = element_blank(),
+        panel.grid.major.x = element_line(colour = "darkgrey", linetype=1),
+        panel.grid.major.y = element_blank(),
+        axis.title.x=element_text(size=8,face="bold"),
+        axis.title.y=element_blank(),
+        axis.text=element_text(size=8, color="black")) +
+  scale_fill_manual(values=c("#A83500","#F0BC00")) +
+  coord_flip() +
+  scale_y_continuous(expand = c(.005, .005), limits = c(0,32)) + # Removes the buffer between 0 and the bars
+  guides(fill = guide_legend(ncol = 2, reverse = TRUE))
+figure2_prev
+
+# Run numbers for serotypes and serogroup
+serotype_sum <- serotype_dist |>
+  filter(serogroup=="S. flexneri") |>
+  group_by(enroll_site,source,serotype) |>
+  summarise(value=n()) %>%
+  mutate(csum = rev(cumsum(rev(value))), 
+         pos = value/2 + lead(csum, 1),
+         pos = if_else(is.na(pos), value/2, pos),
+         perc = round((value/sum(value))*100,1),
+         ind=paste0(value," (",sprintf("%.1f",perc),"%)"),
+         ind=gsub("\\.", "·",ind))
+
+serotype_sum_total <- serotype_dist |>
+  filter(serogroup=="S. flexneri") |>
+  group_by(source,serotype) |>
+  summarise(value=n()) %>%
+  mutate(enroll_site=8,
+         csum = rev(cumsum(rev(value))), 
+         pos = value/2 + lead(csum, 1),
+         pos = if_else(is.na(pos), value/2, pos),
+         perc = round((value/sum(value))*100,1),
+         ind=paste0(value," (",sprintf("%.1f",perc),"%)"),
+         ind=gsub("\\.", "·",ind))
+
+serogroup_sum <- serotype_dist |>
+  group_by(enroll_site,source,serogroup) |>
+  summarise(value=n()) %>%
+  mutate(csum = rev(cumsum(rev(value))), 
+         pos = value/2 + lead(csum, 1),
+         pos = if_else(is.na(pos), value/2, pos),
+         perc = round((value/sum(value))*100,1),
+         ind=paste0(value," (",sprintf("%.1f",perc),"%)"),
+         ind=gsub("\\.", "·",ind))
+
+serogroup_sum_total <- serotype_dist |>
+  group_by(source,serogroup) |>
+  summarise(value=n()) %>%
+  mutate(enroll_site=8,
+         csum = rev(cumsum(rev(value))), 
+         pos = value/2 + lead(csum, 1),
+         pos = if_else(is.na(pos), value/2, pos),
+         perc = round((value/sum(value))*100,1),
+         ind=paste0(value," (",sprintf("%.1f",perc),"%)"),
+         ind=gsub("\\.", "·",ind))
+
+serotype_final <- bind_rows(serotype_sum,serotype_sum_total,serogroup_sum, serogroup_sum_total) |>
+  mutate(country_factor=factor(enroll_site,levels=1:8, labels=c("Bangladesh",
+                                                                "Kenya",
+                                                                "Malawi",
+                                                                "Mali",
+                                                                "Pakistan",
+                                                                "Peru",
+                                                                "The Gambia",
+                                                                "Total")),
+         source_factor=factor(case_when(source=="culture" ~ 1,
+                                        source=="tac"     ~ 2), levels=1:2, labels=c("Culture","qPCR")),
+         # REORDER SEROTYPES
+         serotype_factor=factor(case_when(serotype=="1a" ~ 17,
+                                          serotype=="1b" ~ 16,
+                                          serotype=="1c" ~ 15,
+                                          serotype=="1d" ~ 14,
+                                          serotype=="2a" ~ 13,
+                                          serotype=="2b" ~ 12,
+                                          serotype=="3a" ~ 11,
+                                          serotype=="3b" ~ 10,
+                                          serotype=="4a" ~ 9,
+                                          serotype=="4b" ~ 8,
+                                          serotype=="5a" ~ 7,
+                                          serotype=="5b" ~ 6,
+                                          serotype=="6" ~ 5,
+                                          serotype=="7a" ~ 4,
+                                          serotype=="X" ~ 3,
+                                          serotype=="Y" ~ 2,
+                                          serotype=="Non-typeable" ~ 1), levels=1:17, labels=c("Non-typeable",
+                                                                                               "Y",
+                                                                                               "X",
+                                                                                               "7a",
+                                                                                               "6",
+                                                                                               "5b",
+                                                                                               "5a",
+                                                                                               "4b",
+                                                                                               "4a",
+                                                                                               "3b",
+                                                                                               "3a",
+                                                                                               "2b",
+                                                                                               "2a",
+                                                                                               "1d",
+                                                                                               "1c",
+                                                                                               "1b",
+                                                                                               "1a")),
+         serogroup_factor=factor(case_when(serogroup=="Undetermined" ~ 1,
+                                           serogroup=="S. sonnei" ~ 2,
+                                           serogroup=="S. flexneri" ~ 3,
+                                           serogroup=="S. dysenteriae" ~ 4,
+                                           serogroup=="S. boydii" ~ 5),levels=1:5, labels=c("Undetermined",
+                                                                                            "*S. sonnei*",
+                                                                                            "*S. flexneri*",
+                                                                                            "*S. dysenteriae*",
+                                                                                            "*S. boydii*")))
+
+# Run charts
+## Set color palettes
+color_palette_final <- colorRampPalette(c("#006792","lightgreen","darkgreen","gold","darkred","#9078DE"))
+color_palette_final2 <- color_palette_final(17) # for serotype
+color_palette_final3 <- color_palette_final(5) # for serogroup
+
+## Run serotype chart
+serotype <- ggplot(serotype_final |> filter(!is.na(serotype_factor)), aes(x=perc, y=country_factor, fill=serotype_factor)) +
+   geom_bar(stat="identity", color="black", size=0.1) +
+   facet_wrap(~source_factor) +
+   labs(x=expression(paste("Percent of ",italic("S. flexneri")," isolates (%)")), fill=expression(paste(italic("S. flexneri")," serotype"))) +
+   theme(legend.title =element_text(size=8,face="bold"),
+         legend.text= element_text(size = 6),
+         legend.position = "bottom",
+         legend.margin = margin(t = -5),
+         legend.background = element_blank(),  # Remove legend background
+         panel.border=element_rect(colour = "black", fill=NA, size=1),
+         panel.background = element_blank(),
+         panel.grid.major.x = element_line(colour = "darkgrey", linetype=1),
+         panel.grid.major.y = element_blank(),
+         axis.title.x=element_text(size=8,face="bold"),
+         axis.title.y=element_blank(),
+         axis.text=element_text(size=8, color="black"),
+         strip.background = element_blank(),
+         strip.text = element_text(size = 8, face="bold")) +
+   scale_fill_manual(values=
+                       #c("#C87A8A","#C57E7B","#BF826B","#B8875C","#AE8B50","#A29048","#949546","#84994A","#729C55","#5D9F62", "#45A271","#26A380","#00A38F","#00A39D","#00A1AA","#2A9EB5","#4C99BE") ,
+                       color_palette_final2, 
+                    breaks = rev(levels(serotype_final$serotype_factor))) +
+   scale_y_discrete(limits = rev(levels(serotype_final$country_factor))) +
+   guides(fill = guide_legend(ncol = 8))
+serotype
+
+# Run serogroup chart
+serogroup <- ggplot(serotype_final |> filter(!is.na(serogroup)), aes(x=perc, y=country_factor, fill=serogroup_factor)) +
+   geom_bar(stat="identity", color="black", size=0.1) +
+   facet_wrap(~source_factor) +
+   labs(x=expression(paste("Percent of ",italic("Shigella")," isolates (%)")), fill=expression(paste(italic("Shigella")," serogroup"))) +
+   theme(legend.title =element_text(size=8,face="bold"),
+         legend.text= element_markdown(size=6),
+         legend.position = "bottom",
+         legend.background = element_blank(),
+         legend.margin = margin(t = -5),
+         panel.border=element_rect(colour = "black", fill=NA, size=1),
+         panel.background = element_blank(),
+         panel.grid.major.x = element_line(colour = "darkgrey", linetype=1),
+         panel.grid.major.y = element_blank(),
+         axis.title.x=element_text(size=8,face="bold"),
+         axis.title.y=element_blank(),
+         axis.text=element_text(size=8, color="black"),
+         strip.background = element_blank(),
+         strip.text = element_text(size = 8, face="bold")) +
+   scale_fill_manual(values=color_palette_final2, 
+                    breaks = rev(levels(serotype_final$serogroup_factor)))+
+   scale_y_discrete(limits = rev(levels(serotype_final$country_factor)))
+serogroup
+
+# Combine
+figure2 <- figure2_prev + (serogroup / serotype) + plot_layout(widths = c(1, 2)) + plot_annotation(tag_levels = 'A') & 
+  theme(plot.tag = element_text(size = 12, face="bold",vjust = -5,margin = margin(r = -10)), plot.margin = margin(1, 1, 1, 1)) 
+figure2
+
+# Export
+ggsave(figure2,width = 9, height = 5, dpi = 600, filename = paste0("./Primary manuscript/Fig2_prevalence_",today,".png"))
+ggsave(figure2,width = 9, height = 5, dpi = 600, filename = paste0("./Primary manuscript/Fig2_prevalence_",today,".eps"))
+```
+
+```{r fig3_incidence}
+# Create incidences - pull out total incidence by site and lab method
+shigella_inc_data <-  bind_rows(country_culture %>% filter(is.na(sens1) & is.na(sens2) & is.na(sens3)) |>
+                                                    filter(is.na(serogroup) & is.na(serotype) & is.na(dys_serotype) & is.na(quad) & is.na(quad2) & is.na(biv) & is.na(gems_shig) & is.na(gems_msd) & is.na(mvs) & is.na(mvs_dys) & is.na(b_dysentery) & is.na(mvs_dys_biv) & is.na(mvs_dys_quad) & is.na(mvs_dys_quad2) & is.na(gems_msd_biv) & is.na(gems_msd_quad) & is.na(gems_msd_quad2) & is.na(agegroup) & is.na(c_month) & is.na(hosp_during_episode) & is.na(clark) & is.na(maled)),
+                                overall_culture %>% filter(is.na(sens1) & is.na(sens2) & is.na(sens3)) |>
+                                                    filter(is.na(serogroup) & is.na(serotype) & is.na(dys_serotype) & is.na(quad) & is.na(quad2) & is.na(biv) & is.na(gems_shig) & is.na(gems_msd) & is.na(mvs) & is.na(mvs_dys) & is.na(b_dysentery) & is.na(mvs_dys_biv) & is.na(mvs_dys_quad) & is.na(mvs_dys_quad2) & is.na(gems_msd_biv) & is.na(gems_msd_quad) & is.na(gems_msd_quad2) & is.na(agegroup) & is.na(c_month) & is.na(hosp_during_episode) & is.na(clark) & is.na(maled)),
+                                country_tac %>% filter(is.na(sens1) & is.na(sens2) & is.na(sens3)) |>
+                                                filter(is.na(serogroup) & is.na(serotype) & is.na(dys_serotype) & is.na(quad) & is.na(quad2) & is.na(biv) & is.na(gems_shig) & is.na(gems_msd) & is.na(mvs) & is.na(mvs_dys) & is.na(b_dysentery) & is.na(mvs_dys_biv) & is.na(mvs_dys_quad) & is.na(mvs_dys_quad2) & is.na(gems_msd_biv) & is.na(gems_msd_quad) & is.na(gems_msd_quad2) & is.na(agegroup) & is.na(c_month) & is.na(hosp_during_episode) & is.na(clark) & is.na(maled)),
+                                overall_tac %>% filter(is.na(sens1) & is.na(sens2) & is.na(sens3)) |>
+                                                filter(is.na(serogroup) & is.na(serotype) & is.na(dys_serotype) & is.na(quad) & is.na(quad2) & is.na(biv) & is.na(gems_shig) & is.na(gems_msd) & is.na(mvs) & is.na(mvs_dys) & is.na(b_dysentery) & is.na(mvs_dys_biv) & is.na(mvs_dys_quad) & is.na(mvs_dys_quad2) & is.na(gems_msd_biv) & is.na(gems_msd_quad) & is.na(gems_msd_quad2) & is.na(agegroup) & is.na(c_month) & is.na(hosp_during_episode) & is.na(clark) & is.na(maled) )) %>%
+  ungroup() |>
+  select(country, crude, enr_adj, adj) |>
+  mutate(order=row_number(),
+         source=ifelse(order < 9,"Culture","TAC")) |>
+  left_join(boot |> filter(inc_type=="overall" & agegrp=="6-35 months") |>
+              mutate(source=ifelse(tac_culture=="culture","Culture","TAC")), by=c("country","source")) |>
+  mutate(adj_label=paste0(sprintf("%.1f", round(adj,1)),
+                          " (",
+                          sprintf("%.1f", round(perc_cis_lower,1)),
+                          ", ",
+                          sprintf("%.1f", round(perc_cis_upper,1)),
+                          ")"),
+         # replace decimals with interpuncts
+         adj_label= gsub("\\.", "·", adj_label)) |> 
+  rename(adj_lower=perc_cis_lower,
+         adj_upper=perc_cis_upper,
+         adj_est=est) |>
+  select(country, starts_with("crude"),starts_with("adj"), source) |>
+  left_join(boot |> filter(inc_type=="crude" & agegrp=="6-35 months") |>
+              mutate(source=ifelse(tac_culture=="culture","Culture","TAC")), by=c("country","source")) |>
+  mutate(crude_label=paste0(sprintf("%.1f", round(crude,1)),
+                            " (",
+                            sprintf("%.1f", round(perc_cis_lower,1)),
+                            ", ",
+                            sprintf("%.1f", round(perc_cis_upper,1)),
+                            ")"),
+         crude_label= gsub("\\.", "·", crude_label)) |>
+  rename(crude_lower=perc_cis_lower,
+         crude_upper=perc_cis_upper) |>
+  select(country, starts_with("crude"),starts_with("adj"),source)
+
+# Prep data for forest plot
+forest_total_title=data.frame(source="Laboratory method", country="EFGH country site",crude_label="Crude incidence (95% CI)",adj_label="Adjusted incidence (95% CI)",order=0)
+
+shigella_inc_data2 <- shigella_inc_data |>
+  arrange(country,source) |>
+  mutate(order=row_number(),
+         source_factor=factor(case_when(source=="Culture" ~ 1,
+                                        source=="TAC" ~ 0), levels=0:1, labels=c("qPCR","Culture"))) |>
+  bind_rows(forest_total_title) |>
+  mutate(fontface_factor = ifelse(order==0, "bold", "plain"),
+         country2=ifelse(order %in% c(2,4,6,8,10,12,14,16),"",country)) |>
+  arrange(order) |>
+  select(order,country,country2,source,source_factor,starts_with("crude"),starts_with("adj"),fontface_factor)
+
+# Run forest plots
+# Create background variables 
+bg_df <- shigella_inc_data2 %>%
+  filter(country!="EFGH country site") |>
+  distinct(country) %>%
+  mutate(
+    ymin = as.numeric(factor(country)) - 0.5,
+    ymax = as.numeric(factor(country)) + 0.5,
+    ymin2 = ymin*2 + 0.5,
+    ymax2 = ymax*2 + 0.5,
+    fill = rep(c("lightgray", "white"), length.out = nrow(shigella_inc_data2) / 2),
+    fill2=case_when(fill=="lightgray" ~ "white",
+                    fill=="white" ~ "lightgray")
+  )
+
+bg_df2 <- shigella_inc_data2 %>%
+  filter(country != "EFGH country site") %>%
+  distinct(country,source_factor) %>%
+  mutate(
+    ymin = row_number() + 0.5,
+    ymax = row_number() + 1.5,
+    fill = case_when(
+      row_number() %in% c(3,4,7,8,11,12,15,16) ~ "lightgray",
+      TRUE ~ "white"
+    )
+  )
+
+# Run adjusted forest plot
+figure3_adj_inc <- shigella_inc_data2 |>
+  filter(order>0) |>
+  ggplot(aes(y = country)) + 
+  theme_classic() +
+  scale_y_discrete(limits=rev) +
+  geom_rect(data = bg_df, aes(xmin = -Inf, xmax = Inf, ymin = ymin, ymax = ymax, fill = fill), 
+            inherit.aes = FALSE) +
+  geom_vline(xintercept=c(0,10,20,30,40,50), color="gray40", size=0.5) +
+  geom_point(aes(x=adj, color=source_factor, shape=source_factor), position=position_dodge(0.9), size=2) +
+  geom_label(
+    aes(x = 59, label = adj_label, group=source_factor), position=position_dodge(0.9),   # x = right edge of x-axis
+    hjust = 1,                        # right-align the text
+    size = 2.5,
+    fill = NA,
+    label.size = NA # adjust as needed
+  ) +
+  geom_linerange(aes(color=source_factor, xmin=adj_lower, xmax=adj_upper), position=position_dodge(0.9)) +
+  labs(x="Adjusted incidence per 100 child-years (95% CI)", y="", color="Testing method", shape="Testing method") +
+  theme(axis.line.y = element_blank(),
+        axis.ticks.y= element_blank(),
+        axis.text.y= element_text(size = 8),
+        axis.title.y= element_text(size = 8, face="bold"),
+        panel.border = element_rect(colour = "black", fill=NA, size=1),
+        panel.grid.major.x = element_blank(),
+        legend.position = "bottom",
+        legend.text = element_text(size = 8),
+        legend.title=element_text(size = 8, face="bold"),
+        axis.text = element_text(size = 8),
+        axis.title = element_text(size = 8)) +
+  scale_x_continuous(expand = c(.005, .005), limits = c(0,59)) +
+  scale_color_manual(values = c("#A83500", "#39017A"),guide = guide_legend(reverse = TRUE,override.aes = list(shape = c(19,15)))) +  
+  scale_fill_manual(values = c("lightgray", "white"), guide = "none") +
+  scale_shape_manual(values = c(15, 19), guide = guide_legend(reverse = TRUE,override.aes = list(color = c("#39017A","#A83500"))))
+figure3_adj_inc
+
+# Export
+ggsave(figure3_adj_inc,width = 6.5, height = 5, dpi = 600, filename = paste0("./Primary manuscript/Fig3_incidence_",today,".png"))
+ggsave(figure3_adj_inc,width = 6.5, height = 5, dpi = 600, filename = paste0("./Primary manuscript/Fig3_incidence_",today,".eps"))
+```
+
+```{r fig4_age}
+# Pull out age data
+inc_age_data <- bind_rows(country_culture |> subset(!is.na(agegroup) & is.na(sens1) & is.na(sens2) & is.na(sens3)) |> mutate(source="Culture"),
+                          country_tac     |> subset(!is.na(agegroup) & is.na(sens1) & is.na(sens2) & is.na(sens3)) |> mutate(source="TAC"),
+                          overall_culture |> subset(!is.na(agegroup) & is.na(sens1) & is.na(sens2) & is.na(sens3)) |> mutate(source="Culture"),
+                          overall_tac     |> subset(!is.na(agegroup) & is.na(sens1) & is.na(sens2) & is.na(sens3)) |> mutate(source="TAC")) |>
+  mutate(value=factor(agegroup, levels=1:5, labels=c("6-8","9-11","12-17","18-23","24-35")))
+
+# Create separate incidence indicators and merge in 95% CIs
+## Adjusted incidence
+inc_age_data_adj <- inc_age_data |>
+  left_join(boot |> filter(agegrp!="6-35 months" & inc_type=="overall") |>
+                    mutate(agegroup=case_when(agegrp=="6-8 months" ~ 1,
+                                              agegrp=="9-11 months" ~ 2,
+                                              agegrp=="12-17 months" ~ 3,
+                                              agegrp=="18-23 months" ~ 4,
+                                              agegrp=="24-35 months" ~ 5),
+                           source=ifelse(tac_culture=="culture","Culture","TAC"),
+                           source_factor=factor(case_when(source=="Culture" ~ 1,
+                                                          source=="TAC" ~ 2), levels=1:2, labels=c("Culture","qPCR"))) |>
+              select(country,agegroup,est,source,source_factor,starts_with("perc")), 
+            by=c("country","source","agegroup")) |>
+  ungroup() |>
+  select(country,adj,value,perc_cis_lower,perc_cis_upper,source_factor,est) |>
+  rename(incidence=adj) |>
+  mutate(type=factor(4,levels=4,labels="Adjusted incidence"))
+
+## Crude incidence
+inc_age_data_crude <- inc_age_data |>
+  left_join(boot |> filter(agegrp!="6-35 months" & inc_type=="crude") |>
+                    mutate(agegroup=case_when(agegrp=="6-8 months" ~ 1,
+                                              agegrp=="9-11 months" ~ 2,
+                                              agegrp=="12-17 months" ~ 3,
+                                              agegrp=="18-23 months" ~ 4,
+                                              agegrp=="24-35 months" ~ 5),
+                           source=ifelse(tac_culture=="culture","Culture","TAC"),
+                           source_factor=factor(case_when(source=="Culture" ~ 1,
+                                                          source=="TAC" ~ 2), levels=1:2, labels=c("Culture","qPCR"))) |>
+              select(country,agegroup,est,source,source_factor,starts_with("perc")), 
+            by=c("country","source","agegroup")) |>
+  ungroup() |>
+  select(country,crude,value,perc_cis_lower,perc_cis_upper,source_factor,est) |>
+  rename(incidence=crude) |>
+  mutate(type=factor(1,levels=1,labels="Observed"))
+
+## Enrollment-adjusted incidence
+inc_age_data_enr <- inc_age_data |>
+  left_join(boot |> filter(agegrp!="6-35 months" & inc_type=="enroll") |>
+                    mutate(agegroup=case_when(agegrp=="6-8 months" ~ 1,
+                                              agegrp=="9-11 months" ~ 2,
+                                              agegrp=="12-17 months" ~ 3,
+                                              agegrp=="18-23 months" ~ 4,
+                                              agegrp=="24-35 months" ~ 5),
+                           source=ifelse(tac_culture=="culture","Culture","TAC"),
+                           source_factor=factor(case_when(source=="Culture" ~ 1,
+                                                          source=="TAC" ~ 2), levels=1:2, labels=c("Culture","qPCR"))) |>
+              select(country,agegroup,est,source,source_factor,starts_with("perc")), 
+            by=c("country","source","agegroup")) |>
+  ungroup() |>
+  select(country,enr_adj,value,perc_cis_lower,perc_cis_upper,source_factor,est) |>
+  rename(incidence=enr_adj) |>
+  mutate(type=factor(2,levels=2,labels="EFGH facilities"))
+
+## all clinics incidence
+inc_age_data_clinic <- inc_age_data |>
+  left_join(boot |> filter(agegrp!="6-35 months" & inc_type=="efgh") |>
+                    mutate(agegroup=case_when(agegrp=="6-8 months" ~ 1,
+                                              agegrp=="9-11 months" ~ 2,
+                                              agegrp=="12-17 months" ~ 3,
+                                              agegrp=="18-23 months" ~ 4,
+                                              agegrp=="24-35 months" ~ 5),
+                           source=ifelse(tac_culture=="culture","Culture","TAC"),
+                           source_factor=factor(case_when(source=="Culture" ~ 1,
+                                                          source=="TAC" ~ 2), levels=1:2, labels=c("Culture","qPCR"))) |>
+              select(country,agegroup,est,source,source_factor,starts_with("perc")),
+            by=c("country","source","agegroup")) |>
+  ungroup() |>
+  select(country,clinic_adj,value,perc_cis_lower,perc_cis_upper, source_factor,est) |>
+  rename(incidence=clinic_adj) |>
+  mutate(type=factor(3,levels=3,labels="All facilities"))
+
+inc_age_final <-bind_rows(inc_age_data_crude,inc_age_data_enr,inc_age_data_clinic,inc_age_data_adj) |>
+  mutate(test=incidence-as.numeric(est)) # looks good!
+
+# make graphs
+fig4_age <- ggplot(inc_age_final,aes(x=country, y=incidence,fill=value,ymin=perc_cis_lower,ymax=perc_cis_upper)) +
+  geom_bar(position="dodge", stat="identity") +
+  geom_errorbar(aes(group=value), position=position_dodge(0.9), colour="black", width=0, size=0.25) +
+ # geom_text(aes(label =round(adj,digits=2),color=value), position=position_dodge(width=0.9), hjust=-0.25, size=3,angle=90) +
+  facet_grid(type~source_factor, scales = "free_y") +
+  xlab("EFGH country site") +
+  ylab("Incidence per 100 child-years") +
+  labs(fill="Age in months") +
+  theme(strip.background = element_rect(fill = "white"),
+        strip.text.x = element_text(face="bold",size = 10),
+        strip.text.y = element_text(face="bold",size = 7),
+        legend.title = element_text(face="bold",size = 10),
+        legend.text = element_text(size = 10),
+        legend.position="bottom",
+        panel.border=element_rect(colour = "black", fill=NA, size=1),
+        panel.background = element_blank(),
+        panel.grid.major.y = element_line(colour = "darkgrey", linetype=1),
+        panel.grid.major.x = element_blank(),
+        axis.title=element_text(size=10,face="bold"),
+        axis.text.y=element_text(size=10),
+        axis.text.x=element_text(size=8,face="bold")) +
+    scale_fill_manual(values=new_pal)
+fig4_age 
+
+# Export 
+ggsave(fig4_age ,width = 9, height = 5.5, dpi = 600, filename = paste0("./Primary manuscript/Fig4_Age_",today,".png"))
+ggsave(fig4_age ,width = 9, height = 5.5, dpi = 600, filename = paste0("./Primary manuscript/Fig4_Age_",today,".eps"))
+```
+
+```{r fig5_amr}
+# Make heat plot of AMR by shigella species
+## Update labels
+abx_paper <- abx_results |>
+  mutate(abx2=factor(as.numeric(abx),levels=1:11, labels=c("AMP",
+                                                           "AZI",
+                                                           "CIP",
+                                                           "CTX",
+                                                           "NA",
+                                                           "PIV",
+                                                           "TRI-SMX",
+                                                           "MDR",
+                                                           "XDR",
+                                                           "Any WHO",
+                                                           "All WHO")),
+         country2=factor(case_when(country=="Peru" ~ 1,
+                                   country=="Kenya" ~ 2,
+                                   country=="Malawi" ~ 3,
+                                   country=="The Gambia" ~ 4,
+                                   country=="Mali" ~ 5,
+                                   country=="Bangladesh" ~ 6,
+                                   country=="Pakistan" ~ 7,
+                                   country=="Total" ~ 8),levels=1:8, labels=c("Peru","Kenya","Malawi","The Gambia","Mali","Bangladesh","Pakistan","Total")),
+         group2=factor(case_when(group=="S. boydii" ~ 1,
+                                 group=="S. dysenteriae" ~ 2,
+                                 group=="S. flexneri" ~ 3,
+                                 group=="S. sonnei" ~ 4,
+                                 group=="All Isolates" ~ 5), levels=1:5, labels=c("*S. boydii* (N=83)","*S. dysenteriae* (N=35)","*S. flexneri* (N=497)","*S. sonnei* (N=257)","All Isolates (N=884)")))
+
+## Reverse order for plot of antibiotics
+abx_paper$abx2 <- factor(abx_paper$abx2, levels = rev(unique(abx_paper$abx2)))
+
+## Run plot overall
+amr_heatmap_paper_overall <- ggplot(abx_paper |> filter(group2=="All Isolates (N=884)"), aes(country2, abx2, fill = Percent, label = round(Percent, 0))) + 
+  geom_tile(color = "white") +  # Add color argument for border
+  geom_text(size = 2, color = "black") + # to add values to heatmaps
+  scale_fill_gradient(low = "lightblue", high = "blue",limits=c(0,100)) +
+  ylab(" ") +
+  xlab("EFGH country site") +  
+  facet_wrap(~group2) +
+  #scale_y_discrete(limits = rev(levels(abx_astmh2$abx2))) +  # Reverse y-axis for factors
+  guides(fill = guide_colourbar(title = "Resistance (%)")) +
+  theme(
+    #legend.title = element_text(size = 10, face="bold"),
+    legend.position = "none",  # remove legend
+    axis.title.x = element_text(size = 10, face = "bold"),  # Bold and size for x-axis title
+    axis.title.y = element_text(size = 10, face = "bold"),  # Bold and size for y-axis title
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+    panel.background = element_blank(),
+    strip.background = element_blank(),
+    strip.text = element_markdown(size = 10, face="bold"),
+    plot.margin = margin(t = 0, r = 5, b = 5, l = 5),  # Reduce or remove top margin (t = 0)
+    plot.title = element_blank()  # Optional: Remove the plot title if it's causing the gap
+  ) 
+amr_heatmap_paper_overall
+
+## Run plot by species
+amr_heatmap_paper_species <- ggplot(abx_paper |> filter(group2!="All Isolates (N=884)"), aes(country2, abx2, fill = Percent, label = round(Percent, 0))) + 
+  geom_tile(color = "white") +  # Add color argument for border
+  geom_text(size = 2, color = "black") + # to add values to heatmaps
+  scale_fill_gradient(low = "lightblue", high = "blue",limits=c(0,100)) +
+  ylab(" ") +
+  xlab("EFGH country site") +
+  #scale_y_discrete(limits = rev(levels(abx_astmh2$abx2))) +  # Reverse y-axis for factors
+  guides(fill = guide_colourbar(title = "Resistance (%)")) +
+  theme(
+    legend.title = element_text(size = 10, face="bold"),
+    legend.position = "right",  # Move legend to the bottom
+    axis.title.x = element_text(size = 10, face = "bold"),  # Bold and size for x-axis title
+    axis.title.y = element_text(size = 10, face = "bold"),  # Bold and size for y-axis title
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+    panel.background = element_blank(),
+    strip.background = element_blank(),
+    strip.text = element_markdown(size = 10, face="bold"),
+    plot.margin = margin(t = 0, r = 1, b = 5, l = 5),  # Reduce or remove top margin (t = 0)
+    plot.title = element_blank()  # Optional: Remove the plot title if it's causing the gap
+  )  +
+  facet_wrap(~group2)
+amr_heatmap_paper_species
+
+## Combine
+fig5_amr <- amr_heatmap_paper_overall + amr_heatmap_paper_species +
+  plot_layout(widths = c(25,40)) + plot_annotation(tag_levels = 'A') & 
+  theme(plot.tag = element_text(size = 14, face="bold",vjust = -5, margin = margin(r = -20)))
+fig5_amr
+
+# Export
+ggsave(plot = fig5_amr, width = 9, height = 4, dpi = 600, filename = paste0("./Primary manuscript/Fig5_Abx_Heatmap_",today,".png"))
+ggsave(plot =fig5_amr, width = 9, height = 4, dpi = 600, filename = paste0("./Primary manuscript/Fig5_Abx_Heatmap_",today,".eps"))
+```
+
+```{r supptable7_diarrhea incidence, echo=FALSE, include=TRUE}
+# Format data
+supptable7_data <- diarrhea_final |>
+  mutate(watery2=paste0(watery),
+         dysentery2=paste0(dysentery),
+         total2=paste0(total),
+         crude2=paste0(sprintf("%.1f", round(crude,1))),
+         enr_adj2=paste0(sprintf("%.1f", round(enr_adj,1))),
+         clinic_adj2=paste0(sprintf("%.1f", round(clinic_adj,1))),
+         adj2=paste0(sprintf("%.1f", round(adj,1))),
+         crude2=gsub("\\.", "·",crude2),
+         enr_adj2=gsub("\\.", "·",enr_adj2),
+         clinic_adj2=gsub("\\.", "·",clinic_adj2),
+         adj2=gsub("\\.", "·",adj2)) |>
+  select(country,ends_with("2"))
+  
+# Create table
+supptable7 <-qflextable(supptable7_data) %>%
+   add_header_row(
+    top = TRUE,                # New header goes on top of existing header row
+    values = c("Country",     # Header values for each column below
+               "Enrolled medically-attended diarrhea (MAD) cases: n", 
+               "",    
+               "",           
+               "Diarrhea incidence per 100 child-years (95% CI)",
+               "",
+               "",
+               "")) %>% 
+  set_header_labels(         # Rename the columns in original header row
+      country = "", 
+      watery2 = "Watery diarrhea",                  
+      dysentery2 = "Dysentery",
+      total2 = "Total",
+      crude2 = "Enrolled at EFGH facilities (observed)",
+      enr_adj2 = "Estimated cases at seeking care EFGH facilities",
+      clinic_adj2 = "Estimated cases seeking care in the catchment area",
+      adj2 = "Estimated cases in the catchment area (adjusted incidence)")  %>%
+  # Add footnotes
+  footnote(i = 1, j = 2,value = as_paragraph("MAD: medically-attended diarrhea"),ref_symbols = c(" "),part = "body", inline = FALSE) %>%
+  footnote(i = 1, j = 5,value = as_paragraph(" Incidence is calculated at the facility-level and summed to get country-level incidence and is the number of confirmed watery diarrhea cases per 100 child-years plus the number of confirmed dysentery cases per 100 child-years at risk. Observed incidence is not adjusted, estimated incidence at EFGH facilities adjusts incidence by accounting for children who were not enrolled and therefore not tested for but were eligible, estimating cases in the catchment area seeking care additionally adjusts incidence for the percentage who sought care at EFGH facilities among all care seeking, and the adjusted incidence is additionally adjusted for children in the catchment area who reported diarrhea of similar severity to facility-enrolled cases but did not report seeking care. 95% confidence intervals were generated using bootstrapping. Details of incidence rate calculations are shown in Table S3."),ref_symbols = c("*"),part = "header", inline = FALSE) |>
+  footnote(i = 8, j = 1,value = as_paragraph(" Totals are the average of country-level estimates."),ref_symbols = c("‡"),part = "body", inline = FALSE) %>%
+  # Set fonts
+  font(fontname = "Arial Narrow", part= "all") %>%
+  fontsize(size = 10, part = "all") %>%
+  # column width
+  width(j = c(2:4), width=0.5, unit = "in") %>%
+  width(j = 1, width=1.1, unit = "in") %>%
+  width(j = c(5:8), width=1.6, unit = "in") %>%
+  # Add lines
+  vline(part = "all", j = 4, border = border_style) %>%     # at columns 4
+  hline_top(border = border_style2, part = "header") %>%
+  hline_top(border = border_style2, part = "body") %>%
+  hline(part = "body", i = 8, border = border_style2) %>% # at rows 1,9-10 and 18 - black line
+  hline(part = "body", i = 7, border = border_style3) %>% # at rows 8 and 17 - gray line
+  # remove lines in header
+  hline(part= "header", i=1, border = border_style4) %>% # makes disappear
+  # Align cells
+  valign(i = c(1:2), valign = "bottom", part = "header") %>%
+  flextable::align(align = "center", j = c(2:8), part = "all") %>%     
+  bold(i = 8, bold = TRUE, part = "body")  %>%  
+  bold(i = 1, bold = TRUE, part = "header")  %>%   
+  merge_at(i = 1:2, j = 1, part = "header") %>%
+  merge_at(i = 1, j = 2:4, part = "header") %>%
+  merge_at(i = 1, j = 5:8, part = "header") %>%
+  # Line spacing
+  line_spacing(space = 1.15, part = "all") %>% 
+  padding(padding = 0, part = "all")
+supptable7
+
+save_as_docx(supptable7, values = NULL, path=paste0("./Primary Manuscript/SuppTable7_DiarrheaIncidence_",today,".docx"), pr_section = sect_properties1)
+```
+
+```{r supptable9_incidence, echo=FALSE, include=TRUE}
+# Build table
+supptable9_titles <- data.frame(order=c(0,8.5),
+                                country=c("Confirmed by culture","Attributable by molecular diagnostics (qPCR)"))
+
+supptable9_data <-  bind_rows(country_culture |> filter(is.na(sens1) & is.na(sens2) & is.na(sens3)) |> 
+                                                 filter(is.na(serogroup) & is.na(serotype) & is.na(dys_serotype) & is.na(quad) & is.na(quad2) & is.na(biv) & is.na(gems_shig) & is.na(gems_msd) & is.na(mvs) & is.na(mvs_dys) & is.na(b_dysentery) & is.na(mvs_dys_biv) & is.na(mvs_dys_quad) & is.na(mvs_dys_quad2) & is.na(gems_msd_biv) & is.na(gems_msd_quad) & is.na(gems_msd_quad2) & is.na(agegroup) & is.na(c_month) & is.na(hosp_during_episode) & is.na(clark) & is.na(maled)),
+                                overall_culture |> filter(is.na(sens1) & is.na(sens2) & is.na(sens3)) %>% 
+                                                   filter(is.na(serogroup) & is.na(serotype) & is.na(dys_serotype) & is.na(quad) & is.na(quad2) & is.na(biv) & is.na(gems_shig) & is.na(gems_msd) & is.na(mvs) & is.na(mvs_dys) & is.na(b_dysentery) & is.na(mvs_dys_biv) & is.na(mvs_dys_quad) & is.na(mvs_dys_quad2) & is.na(gems_msd_biv) & is.na(gems_msd_quad) & is.na(gems_msd_quad2) & is.na(agegroup) & is.na(c_month) & is.na(hosp_during_episode) & is.na(clark) & is.na(maled)),
+                                country_tac |> filter(is.na(sens1) & is.na(sens2) & is.na(sens3)) %>% 
+                                               filter(is.na(serogroup) & is.na(serotype) & is.na(dys_serotype) & is.na(quad) & is.na(quad2) & is.na(biv) & is.na(gems_shig) & is.na(gems_msd) & is.na(mvs) & is.na(mvs_dys) & is.na(b_dysentery) & is.na(mvs_dys_biv) & is.na(mvs_dys_quad) & is.na(mvs_dys_quad2) & is.na(gems_msd_biv) & is.na(gems_msd_quad) & is.na(gems_msd_quad2) & is.na(agegroup) & is.na(c_month) & is.na(hosp_during_episode) & is.na(clark) & is.na(maled)),
+                                overall_tac |> filter(is.na(sens1) & is.na(sens2) & is.na(sens3)) %>% 
+                                               filter(is.na(serogroup) & is.na(serotype) & is.na(dys_serotype) & is.na(quad) & is.na(quad2) & is.na(biv) & is.na(gems_shig) & is.na(gems_msd) & is.na(mvs) & is.na(mvs_dys) & is.na(b_dysentery) & is.na(mvs_dys_biv) & is.na(mvs_dys_quad) & is.na(mvs_dys_quad2) & is.na(gems_msd_biv) & is.na(gems_msd_quad) & is.na(gems_msd_quad2) & is.na(agegroup) & is.na(c_month) & is.na(hosp_during_episode) & is.na(clark) & is.na(maled))) %>%
+  ungroup() |>
+  select(country, watery, dysentery,total, crude, enr_adj, clinic_adj, adj) |>
+  mutate(order=row_number()) |>
+  mutate(source=ifelse(order < 9,"Culture","TAC")) |>
+  # Merge in CIs
+  left_join(boot |> filter(inc_type=="overall" & agegrp=="6-35 months") |>
+                    mutate(source=ifelse(tac_culture=="culture","Culture","TAC")) |>
+                    select(country,source,est, starts_with("perc")) |>
+                    rename(adj_est=est,
+                           adj_lower=perc_cis_lower,
+                           adj_upper=perc_cis_upper), by=c("country","source")) |>
+  left_join(boot |> filter(inc_type=="crude" & agegrp=="6-35 months") |>
+                    mutate(source=ifelse(tac_culture=="culture","Culture","TAC")) |>
+                    select(country,source,est, starts_with("perc")) |>
+                    rename(crude_est=est,
+                           crude_lower=perc_cis_lower,
+                           crude_upper=perc_cis_upper), by=c("country","source")) |>
+  left_join(boot |> filter(inc_type=="enroll" & agegrp=="6-35 months") |>
+                    mutate(source=ifelse(tac_culture=="culture","Culture","TAC")) |>
+                    select(country,source,est, starts_with("perc")) |>
+                    rename(enr_adj_est=est,
+                           enr_adj_lower=perc_cis_lower,
+                           enr_adj_upper=perc_cis_upper), by=c("country","source")) |>
+  left_join(boot |> filter(inc_type=="efgh" & agegrp=="6-35 months") |>
+                    mutate(source=ifelse(tac_culture=="culture","Culture","TAC")) |>
+                    select(country,source,est, starts_with("perc")) |>
+                    rename(clinic_adj_est=est,
+                           clinic_adj_lower=perc_cis_lower,
+                           clinic_adj_upper=perc_cis_upper), by=c("country","source")) |>
+  # build final indicators
+  mutate(watery_ind=paste0(watery),
+         dysentery_ind=paste0(dysentery),
+         total_ind=paste0(total),
+         crude_ind=paste0(sprintf("%.1f", round(crude,1))," (",sprintf("%.1f", round(crude_lower,1)), ", ",sprintf("%.1f", round(crude_upper,1)), ")"),
+         enr_adj_ind=paste0(sprintf("%.1f", round(enr_adj,1))," (",sprintf("%.1f", round(enr_adj_lower,1)), ", ",sprintf("%.1f", round(enr_adj_upper,1)), ")"),
+         clinic_adj_ind=paste0(sprintf("%.1f", round(clinic_adj,1))," (",sprintf("%.1f", round(clinic_adj_lower,1)), ", ",sprintf("%.1f", round(clinic_adj_upper,2)), ")"),
+         adj_ind=paste0(sprintf("%.1f", round(adj,1))," (",sprintf("%.1f", round(adj_lower,1)), ", ",sprintf("%.1f", round(adj_upper,1)), ")"),
+         order=row_number()) |>
+  # Format for the lancet
+  mutate(crude_ind=gsub("\\.", "·",crude_ind),
+         enr_adj_ind=gsub("\\.", "·",enr_adj_ind),
+         clinic_adj_ind=gsub("\\.", "·",clinic_adj_ind),
+         adj_ind=gsub("\\.", "·",adj_ind)) |>
+  bind_rows(supptable9_titles) |>
+  arrange(order) |>
+  select(country, ends_with("ind"))
+
+# Create table
+supptable9 <-qflextable(supptable9_data) %>%
+   add_header_row(
+    top = TRUE,                # New header goes on top of existing header row
+    values = c("Country",     # Header values for each column below
+               "Confirmed Shigella cases: n", 
+               "",    
+               "",           
+               "Shigella incidence per 100 child-years (95% CI)",
+               "",
+               "",
+               "")) %>% 
+  set_header_labels(         # Rename the columns in original header row
+      country = "", 
+      watery_ind = "Watery diarrhea",                  
+      dysentery_ind = "Dysentery",
+      total_ind = "Total",
+      crude_ind = "Enrolled at EFGH facilities (observed)",
+      enr_adj_ind = "Estimated cases at seeking care EFGH facilities",
+      clinic_adj_ind = "Estimated cases seeking care in the catchment area",
+      adj_ind = "Estimated cases in the catchment area (adjusted incidence)")  %>%
+  # Add footnotes
+  footnote(i = 1, j = 2,value = as_paragraph("MAD: medically-attended diarrhea, mBGS: Modified buffered glycerol saline"),ref_symbols = c(" "),part = "body", inline = FALSE) %>%
+  footnote(i = 1, j = 5,value = as_paragraph(" Incidence is calculated at the facility-level and summed to get country-level incidence and is the number of confirmed Shigella watery diarrhea cases per 100 child-years plus the number of confirmed Shigella dysentery cases per 100 child-years at risk. Observed incidence is not adjusted, estimated incidence at EFGH facilities adjusts incidence by accounting for children who were not enrolled and therefore not tested for Shigella but were eligible, estimating cases in the catchment area seeking care additionally adjusts incidence for the percentage who sought care at EFGH facilities among all care seeking, and the adjusted incidence is additionally adjusted for children in the catchment area who reported diarrhea of similar severity to facility-enrolled cases but did not report seeking care. 95% confidence intervals were generated using bootstrapping. Details of incidence rate calculations are shown in Table S3."),ref_symbols = c("*"),part = "header", inline = FALSE) %>%
+  footnote(i = 1, j = 1,value = as_paragraph(" Includes isolates from rectal swabs transported in mBGS or Cary-Blair media."),ref_symbols = c("†"),part = "body", inline = FALSE) %>%
+  footnote(i = c(9,18), j = 1,value = as_paragraph(" Totals are the average of country-level estimates."),ref_symbols = c("‡"),part = "body", inline = FALSE) %>%
+  footnote(i = 10, j = 1,value = as_paragraph(" Defined as an ipaH cycle threshold (Ct) beloiw the attributable cutoff."),ref_symbols = c("§"),part = "body", inline = FALSE) %>%
+  # Set fonts
+  font(fontname = "Arial Narrow", part= "all") %>%
+  fontsize(size = 10, part = "all") %>%
+  # Fill in cells
+  bg(i = 1, part = "body", bg = "grey") %>% # add gray background to row 1
+  bg(i = 10, part = "body", bg = "grey") %>% # add gray background to row 10 %>%
+  # column width
+  width(j = c(2:4), width=0.5, unit = "in") %>%
+  width(j = 1, width=1.1, unit = "in") %>%
+  width(j = c(5:8), width=1.6, unit = "in") %>%
+  # Add lines
+  vline(part = "all", j = 4, border = border_style) %>%     # at columns 4
+  hline_top(border = border_style2, part = "header") %>%
+  hline_top(border = border_style2, part = "body") %>%
+  hline(part = "body", i = c(1,9,10,18), border = border_style2) %>% # at rows 1,9-10 and 18 - black line
+  hline(part = "body", i = c(8,17), border = border_style3) %>% # at rows 8 and 17 - gray line
+  # remove lines in header
+  hline(part= "header", i=1, border = border_style4) %>% # makes disappear
+  # Align cells
+  valign(i = c(1:2), valign = "bottom", part = "header") %>%
+  flextable::align(align = "center", j = c(2:8), part = "all") %>%     
+  bold(i = c(1,9,10,18), bold = TRUE, part = "body")  %>%  
+  bold(i = 1, bold = TRUE, part = "header")  %>%   
+  merge_at(i = 1:2, j = 1, part = "header") %>%
+  merge_at(i = 1, j = 2:4, part = "header") %>%
+  merge_at(i = 1, j = 5:8, part = "header") %>%
+  merge_at(i = 1, j = 1:4, part = "body")  %>%
+  merge_at(i = 10, j = 1:4, part = "body")  %>%
+  # Line spacing
+  line_spacing(space = 1.15, part = "all") %>% 
+  padding(padding = 0, part = "all") %>%
+  # Add italicized text
+  compose(i = 1, j=2, part = "header",
+    value = as_paragraph(
+      "Confirmed ",
+      as_chunk("Shigella", props = fp_text(italic = TRUE, bold = TRUE, font.size = 11, font.family = "Arial Narrow")),
+      " cases: n")) %>%
+  compose(i = 1, j=5, part = "header",
+    value = as_paragraph(
+      as_chunk("Shigella", props = fp_text(italic = TRUE, bold = TRUE, font.size = 11, font.family = "Arial Narrow")),
+      " MAD incidence per 100 child-years (95% CI)","*")) 
+supptable9
+
+# Export
+save_as_docx(supptable9, values = NULL, path=paste0("./Primary Manuscript/SuppTable9_PrimaryIncidence_",today,".docx"), pr_section = sect_properties1)
+```
+
+```{r supptable10_subgroups}
+# First - pull out incidences of interst at the country and overall level by culture and TAC and combine
+supptable10_site <- country_culture |> 
+  filter(is.na(sens1) & is.na(sens2) & is.na(sens3)) |> 
+  filter(!is.na(agegroup) | !is.na(gems_msd) | !is.na(gems_shig) | !is.na(b_dysentery)  | hosp_during_episode==1 | !is.na(mvs) | mvs_dys==1 | !is.na(clark) | !is.na(maled) | quad==1 | quad2==1 | biv==1 | gems_msd_biv=="Moderate-to-severe" | gems_msd_quad=="Moderate-to-severe" | gems_msd_quad2=="Moderate-to-severe" | mvs_dys_biv==1 | mvs_dys_quad==1 | mvs_dys_quad2==1) |>
+  rename(adj_culture=adj) |>
+  left_join(country_tac |> rename(adj_tac=adj) |> 
+                           filter(is.na(sens1) & is.na(sens2) & is.na(sens3)) |> 
+                           filter(!is.na(agegroup) | !is.na(gems_msd) | !is.na(gems_shig) | !is.na(b_dysentery)  | hosp_during_episode==1 | !is.na(mvs) | mvs_dys==1 | !is.na(clark) | !is.na(maled) | quad==1 | quad2==1 | biv==1 | gems_msd_biv=="Moderate-to-severe" | gems_msd_quad=="Moderate-to-severe" | gems_msd_quad2=="Moderate-to-severe" | mvs_dys_biv==1 | mvs_dys_quad==1 | mvs_dys_quad2==1), 
+           by=c("country","agegroup","gems_msd","gems_shig","b_dysentery","hosp_during_episode","mvs","mvs_dys","clark","maled","quad","quad2","biv","gems_msd_biv","gems_msd_quad","gems_msd_quad2","mvs_dys_biv","mvs_dys_quad","mvs_dys_quad2")) %>%
+  ungroup() |>
+  mutate(order=case_when(agegroup==1                  ~ 1,
+                         agegroup==2                  ~ 1.5,
+                         agegroup==3                  ~ 2,
+                         agegroup==4                  ~ 3,
+                         agegroup==5                  ~ 3.5,
+                         b_dysentery==1               ~ 5,
+                         b_dysentery==0               ~ 6,
+                         hosp_during_episode==1       ~ 7,
+                         gems_msd=="Less-severe"      ~ 9,
+                         gems_msd=="Moderate-to-severe"           ~ 10,
+                         gems_shig=="Mild"            ~ 12,
+                         gems_shig=="Moderate"        ~ 13,
+                         gems_shig=="Severe"          ~ 14,
+                         mvs=="Mild"                  ~ 16,
+                         mvs=="Moderate"              ~ 17,
+                         mvs=="Severe"                ~ 18,
+                         mvs_dys==1                   ~ 19,
+                         clark=="Mild"                ~ 21,
+                         clark=="Moderate to Severe"  ~ 22,
+                         maled=="Non-Severe"          ~ 24,
+                         maled=="Severe"              ~ 25,
+                         biv==1                       ~ 28,
+                         quad==1                      ~ 29,
+                         quad2==1                     ~ 30,
+                         gems_msd_biv=="Moderate-to-severe"       ~ 32,
+                         gems_msd_quad=="Moderate-to-severe"      ~ 33,
+                         gems_msd_quad2=="Moderate-to-severe"     ~ 34,
+                         mvs_dys_biv==1               ~ 36,
+                         mvs_dys_quad==1              ~ 37,
+                         mvs_dys_quad2==1             ~ 38)) %>%
+  select(order, adj_culture, adj_tac, country) 
+
+supptable10_total <- overall_culture  |> 
+  filter(is.na(sens1) & is.na(sens2) & is.na(sens3)) |> 
+  filter(!is.na(agegroup) | !is.na(gems_msd) | !is.na(gems_shig) | !is.na(b_dysentery)  | hosp_during_episode==1 | !is.na(mvs) | mvs_dys==1 | !is.na(clark) | !is.na(maled) | quad==1 | quad2==1 | biv==1 | gems_msd_biv=="Moderate-to-severe" | gems_msd_quad=="Moderate-to-severe" | gems_msd_quad2=="Moderate-to-severe" | mvs_dys_biv==1 | mvs_dys_quad==1 | mvs_dys_quad2==1) %>%
+  rename(adj_culture=adj) |>
+  left_join(overall_tac |> rename(adj_tac=adj) |> 
+                           filter(is.na(sens1) & is.na(sens2) & is.na(sens3))  |> 
+                           filter(!is.na(agegroup) | !is.na(gems_msd) | !is.na(gems_shig) | !is.na(b_dysentery)  | hosp_during_episode==1 | !is.na(mvs) | mvs_dys==1 | !is.na(clark) | !is.na(maled) | quad==1 | quad2==1 | biv==1 | gems_msd_biv=="Moderate-to-severe" | gems_msd_quad=="Moderate-to-severe" | gems_msd_quad2=="Moderate-to-severe" | mvs_dys_biv==1 | mvs_dys_quad==1 | mvs_dys_quad2==1), 
+           by=c("country","agegroup","gems_msd","gems_shig","b_dysentery","hosp_during_episode","mvs","mvs_dys","clark","maled","quad","quad2","biv","gems_msd_biv","gems_msd_quad","gems_msd_quad2","mvs_dys_biv","mvs_dys_quad","mvs_dys_quad2")) %>%
+  ungroup() |>
+  mutate(order=case_when(agegroup==1                  ~ 1,
+                         agegroup==2                  ~ 1.5,
+                         agegroup==3                  ~ 2,
+                         agegroup==4                  ~ 3,
+                         agegroup==5                  ~ 3.5,
+                         b_dysentery==1               ~ 5,
+                         b_dysentery==0               ~ 6,
+                         hosp_during_episode==1       ~ 7,
+                         gems_msd=="Less-severe"      ~ 9,
+                         gems_msd=="Moderate-to-severe"           ~ 10,
+                         gems_shig=="Mild"            ~ 12,
+                         gems_shig=="Moderate"        ~ 13,
+                         gems_shig=="Severe"          ~ 14,
+                         mvs=="Mild"                  ~ 16,
+                         mvs=="Moderate"              ~ 17,
+                         mvs=="Severe"                ~ 18,
+                         mvs_dys==1                   ~ 19,
+                         clark=="Mild"                ~ 21,
+                         clark=="Moderate to Severe"  ~ 22,
+                         maled=="Non-Severe"          ~ 24,
+                         maled=="Severe"              ~ 25,
+                         biv==1                       ~ 28,
+                         quad==1                      ~ 29,
+                         quad2==1                     ~ 30,
+                         gems_msd_biv=="Moderate-to-severe"       ~ 32,
+                         gems_msd_quad=="Moderate-to-severe"      ~ 33,
+                         gems_msd_quad2=="Moderate-to-severe"     ~ 34,
+                         mvs_dys_biv==1               ~ 36,
+                         mvs_dys_quad==1              ~ 37,
+                         mvs_dys_quad2==1             ~ 38)) |>
+  select(order, adj_culture, adj_tac, country)
+
+# Prep CIs and merge into combined incidences dataset
+supptable10_cis <- bind_rows(boot,boot_severity) |>
+  mutate(order=case_when(inc_type=="overall" & agegrp=="6-8 months"              ~ 1,
+                         inc_type=="overall" & agegrp=="9-11 months"             ~ 1.5,
+                         inc_type=="overall" & agegrp=="12-17 months"            ~ 2,
+                         inc_type=="overall" & agegrp=="18-23 months"            ~ 3,
+                         inc_type=="overall" & agegrp=="24-35 months"            ~ 3.5,
+                         inc_type=="dysentery" & agegrp=="6-35 months"           ~ 5,
+                         inc_type=="watery" & agegrp=="6-35 months"              ~ 6,
+                         inc_type=="hosp_during_episode" & agegrp=="6-35 months" ~ 7,
+                         inc_type=="gems_lsd" & agegrp=="6-35 months"            ~ 9,
+                         inc_type=="gems_msd" & agegrp=="6-35 months"            ~ 10,
+                         inc_type=="gems_shig_mild" & agegrp=="6-35 months"      ~ 12,
+                         inc_type=="gems_shig_mod" & agegrp=="6-35 months"       ~ 13,
+                         inc_type=="gems_shig_sev" & agegrp=="6-35 months"       ~ 14,
+                         inc_type=="mvs_mild" & agegrp=="6-35 months"            ~ 16,
+                         inc_type=="mvs_mod" & agegrp=="6-35 months"             ~ 17,
+                         inc_type=="mvs_sev" & agegrp=="6-35 months"             ~ 18,
+                         inc_type=="mvs_or_dysentery" & agegrp=="6-35 months"    ~ 19,
+                         inc_type=="clark_mild" & agegrp=="6-35 months"          ~ 21,
+                         inc_type=="clark_sev" & agegrp=="6-35 months"           ~ 22,
+                         inc_type=="maled_nonsev" & agegrp=="6-35 months"        ~ 24,
+                         inc_type=="maled_sev" & agegrp=="6-35 months"           ~ 25,
+                         inc_type=="biv" & agegrp=="6-35 months"                 ~ 28,
+                         inc_type=="quad" & agegrp=="6-35 months"                ~ 29,
+                         inc_type=="alt_quad" & agegrp=="6-35 months"            ~ 30,
+                         inc_type=="biv" & sevgrp=="gems_msd"                    ~ 32,
+                         inc_type=="quad" & sevgrp=="gems_msd"                   ~ 33,
+                         inc_type=="alt_quad" & sevgrp=="gems_msd"               ~ 34,
+                         inc_type=="biv" & sevgrp=="mvs_or_dysentery"            ~ 36,
+                         inc_type=="quad" & sevgrp=="mvs_or_dysentery"           ~ 37,
+                         inc_type=="alt_quad" & sevgrp=="mvs_or_dysentery"       ~ 38)) |>
+  filter(!is.na(order)) |>
+  select(tac_culture, country, order, est, starts_with("perc")) |>
+  pivot_wider(values_from = c("est","perc_cis_lower","perc_cis_upper"), names_from = "tac_culture")
+
+supptable10_titles=data.frame(order=c(0,4,8,11,15,20,23,26,27,31,35))
+
+supptable10_data <- bind_rows(supptable10_site,supptable10_total) |> # combine country and overall incidences
+  left_join(supptable10_cis, by=c("country","order")) |> # merge in CIs
+  # convert to lancet format and build final indicators
+  mutate(adj_culture2=ifelse(adj_culture<0.05 & adj_culture>0,"<0.1",sprintf("%.1f", round(adj_culture,1))),
+         perc_cis_lower_culture2=ifelse(perc_cis_lower_culture<0.05 & perc_cis_lower_culture>0,"<0.1",sprintf("%.1f", round(perc_cis_lower_culture,1))),
+         perc_cis_upper_culture2=ifelse(perc_cis_upper_culture<0.05 & perc_cis_upper_culture>0,"<0.1",sprintf("%.1f", round(perc_cis_upper_culture,1))),
+         culture=paste0(adj_culture2," (",perc_cis_lower_culture2, ", ",perc_cis_upper_culture2, ")"),
+         adj_tac2=ifelse(adj_tac<0.05 & adj_tac>0,"<0.1",sprintf("%.1f", round(adj_tac,1))),
+         perc_cis_lower_tac2=ifelse(perc_cis_lower_tac<0.05 & perc_cis_lower_tac>0,"<0.1",sprintf("%.1f", round(perc_cis_lower_tac,1))),
+         perc_cis_upper_tac2=ifelse(perc_cis_upper_tac<0.05 & perc_cis_upper_tac>0,"<0.1",sprintf("%.1f", round(perc_cis_upper_tac,1))),
+         tac=paste0(adj_tac2," (",perc_cis_lower_tac2, ", ",perc_cis_upper_tac2, ")"),
+         culture=gsub("\\.", "·", culture),
+         tac=gsub("\\.", "·", tac),
+         # TEST DIFFERENCES
+         test1=adj_culture-as.numeric(est_culture),
+         test2=adj_tac-as.numeric(est_tac)) |>
+  select(order,country,culture,tac) |>
+  pivot_wider(names_from = country, values_from = c(culture, tac)) |>
+  bind_rows(supptable10_titles) |>
+  arrange(order) |>
+  mutate(value=ifelse(order==0,"Age and enrollment (months)",
+               ifelse(order==1,"6-8",
+               ifelse(order==1.5,"9-11",
+               ifelse(order==2,"12-17",
+               ifelse(order==3,"18-23",
+               ifelse(order==3.5,"24-35",
+               ifelse(order==4,"Diarrhea severity definitions",
+               ifelse(order==5,"Dysentery",
+               ifelse(order==6,"Watery diarrhea",
+               ifelse(order==7,"Hospitalized",
+               ifelse(order==8,"GEMS",
+               ifelse(order==9,"LSD",
+               ifelse(order==10,"MSD",
+               ifelse(order==11,"GEMS-Shigella",
+               ifelse(order==12,"Mild (<6 points)",
+               ifelse(order==13,"Moderate (6-8 points)",
+               ifelse(order==14,"Severe (9+ points)",
+               ifelse(order==15,"Modified Vesikari score (MVS)",
+               ifelse(order==16,"Mild (0-8 points)",
+               ifelse(order==17,"Moderate (9-10 points)",
+               ifelse(order==18,"Severe (11+ points)",
+               ifelse(order==19,"Moderate or severe diarrhea or dysentery",
+               ifelse(order==20,"Clark score",
+               ifelse(order==21,"Mild (2-8 points)",
+               ifelse(order==22,"Severe (9+ points)",
+               ifelse(order==23,"MAL-ED score",
+               ifelse(order==24,"Non-severe (0-5 points)",
+               ifelse(order==25,"Severe (6+ points)",
+               ifelse(order==26,"Vaccine targets",
+               ifelse(order==27,"Among all MAD",
+               ifelse(order==28,"Bivalent (S. flexneri 2a or S. sonnei)",
+               ifelse(order==29,"Quadrivalent (S. flexneri 2a, 3a, or 6 or S. sonnei)",
+               ifelse(order==30,"Quadrivalent (S. flexneri 1b, 2a, or 3a or S. sonnei)",
+               ifelse(order==31,"Among GEMS MSD",
+               ifelse(order==32,"Bivalent (S. flexneri 2a or S. sonnei)",
+               ifelse(order==33,"Quadrivalent (S. flexneri 2a, 3a, or 6 or S. sonnei)",
+               ifelse(order==34,"Quadrivalent (S. flexneri 1b, 2a, or 3a or S. sonnei)",
+               ifelse(order==35,"Among moderate or severe diarrhea by the modified Vesikari score and/or dysentery",
+               ifelse(order==36,"Bivalent (S. flexneri 2a or S. sonnei)",
+               ifelse(order==37,"Quadrivalent (S. flexneri 2a, 3a, or 6 or S. sonnei)",
+               ifelse(order==38,"Quadrivalent (S. flexneri 1b, 2a, or 3a or S. sonnei)", NA)))))))))))))))))))))))))))))))))))))))))) |>
+    select(value,ends_with("Bangladesh"),ends_with("Kenya"),ends_with("Malawi"),ends_with("Mali"),ends_with("Pakistan"),ends_with("Peru"),ends_with("The Gambia"),ends_with("Total"))
+
+# Run table    
+supptable10_subgroups <-qflextable(supptable10_data) %>%
+   add_header_row(
+    top = TRUE,                # New header goes on top of existing header row
+    values = c("",     # Header values for each column below
+               "Bangladesh", 
+               "",    
+               "Kenya",
+               "",
+               "Malawi",        
+               "",             
+               "Mali",
+               "",
+               "Pakistan",
+               "",
+               "Peru",
+               "",
+               "The Gambia",
+               "",
+               "Total",
+               "")) %>%
+  add_header_row(
+    top = TRUE,                # New header goes on top of existing header row
+    values = c("Strata",       # Header values for each column below
+               "Adjusted Shigella incidence per 100 child-years (95% CI)", 
+               "",    
+               "",
+               "",
+               "",        
+               "",             
+               "",
+               "",
+               "",
+               "", 
+               "",        
+               "",             
+               "",
+               "",
+               "",
+               "")) %>% 
+  set_header_labels(         # Rename the columns in original header row
+      value = "", 
+      culture_Bangladesh = "Culture",                  
+      tac_Bangladesh = "TAC",
+      culture_Kenya = "Culture",                  
+      tac_Kenya = "TAC",
+      culture_Malawi = "Culture",                  
+      tac_Malawi = "TAC",
+      culture_Mali = "Culture",                  
+      tac_Mali = "TAC",
+      culture_Pakistan = "Culture",                  
+      tac_Pakistan = "TAC",
+      culture_Peru = "Culture",                  
+      tac_Peru = "TAC",
+      `culture_The Gambia` = "Culture",                  
+      `tac_The Gambia` = "TAC",
+      culture_Total = "Culture",                  
+      tac_Total = "TAC")  %>%
+  # Add footnotes
+  footnote(i = 1, j = 1, value = as_paragraph("GEMS: Global Enteric Multicenter Study, LSD: less-severe diarrhea, MAD: medically-attended diarrhea, MAL-ED: Malnutrition and Enteric Disease Study, MSD: moderate-to-severe diarrhea, MVS: modified Vesikari score, TAC: TaqMan array card."), ref_symbols = c(" "), part = "body") %>%
+  footnote(i = 1, j = 2, value = as_paragraph(" Incidence is calculated at the facility-level and summed to get country-level incidence and is the number of confirmed Shigella watery diarrhea cases per 100 child-years plus the number of confirmed Shigella dysentery cases per 100 child-years at risk. Incidence is adjusted by the percentage of children potentially eligible but not enrolled (stratified by facility and type of diarrhea) as well as for healthcare seeking from the Healthcare Utilization Survey. 95% confidence intervals were generated using bootstrapping."), ref_symbols = c("*"), part = "header") %>%
+  footnote(i = 3, j = c(3,5,7,9,11,13,15,17), value = as_paragraph(" Defined as an ipaH cycle threshold (Ct) below th attributable cutoff."), ref_symbols = c("†"), part = "header") %>%
+  footnote(i = 11, j = 1, value = as_paragraph(" Defined as in Kotloff, Lancet GH, 2019. Moderate-to-severe diarrhea (MSD) defined as presenting to a health facility with diarrhea and severe or some dehydration (by WHO criteria), visible blood in stool, or inpatient admission. Less-severe-diarrhea (LSD) defined as presenting to a health facility without MSD."), ref_symbols = c("‡"), part = "body") %>%
+  footnote(i = 14, j = 1, value = as_paragraph(" Defined as in Pavlinac, CID, 2021. Duration of diarrhea through day of presentation: 1-3 days (0 point), 4-5 days (2 points), ≥6 days (3 points); WHO-defined dehydration categories: severe (8 points), some (4 points), none (0 points); inpatient admission (5 points)."), ref_symbols = c("§"), part = "body") %>%
+  footnote(i = 18, j = 1, value = as_paragraph(" Defined as in PATH Vesikari Clinical Severity Scoring System Manual: Duration of diarrhea: 1-4 days (1 point), 5 days (2 points) ≥6 days (3 points); Max # of stool in 24 hour period: 1-3 (1 point), 4-5 (2 points), ≥6 (3 points); Duration of vomiting: 1 day (1 point), 2 days (2 points), ≥3 days (3 points); max # of vomiting episodes in 24 hour period: 1 (1 point), 2-4 (2 points), ≥5 (3 points); Axillary temperature 36·6-37·9°C (1 point), 38·0-38·4°C (2 points), ≥38.5°C (3 points); dehydration 1-5% (2 points), ≥6% (3 points); treatment: rehydration (1 point), hospitalization (2 points).N=46 individuals could not be assessed due to missed diarrhea duration data."), ref_symbols = c("∥"), part = "body") %>%
+  footnote(i = 22, j = 1, value = as_paragraph(" Defined as a MVS of 9+ or presence of visible blood in stool."), ref_symbols = c("¶"), part = "body") %>%
+  footnote(i = 23, j = 1, value = as_paragraph(" Defined as in Clark, JID, 1988. Duration of diarrhea: 1-4 days (1 point), 5-7 days (2 points), >7 days (3 points); Max # of stool in 24 hour period: 2-4 (1 point), 5-7 (2 points), >7 (3 points); Duration of vomiting: 2 days (1 point), 3-5 days (2 points), >5 days (3 points); max # of vomiting episodes in 24 hour period: 1-3 (1 point), 4-6 (2 points), >6 (3 points); Duration of reported fever: 1-2 days (1 point), 3-4 days (2 points), ≥5 days (3 points); Rectal temperature 38·0-38·2°C (1 point), 38·3-38·7°C (2 points), ≥38·8°C (3 points); behavioral signs: Irritable/less playful (1 point), Lethargic/listless (2 points), Seizures (3 points)."), ref_symbols = c("**"), part = "body") %>%
+  footnote(i = 26, j = 1, value = as_paragraph(" Defined as in Lee, J Pediatr Gastroenterol Nutr., 2016: Duration of diarrhea: 2-4 days (1 point), 5-7 days (2 points), ≥8 days (3 points); Max # of stool in 24 hour period: <5 loose stools/24 hours (1 point), 5-7 loose stools/24 hours (2 points), ≥8 stools/24 hours (3 points); Duration of vomiting: 1 day (1 point), 2 days (2 points), ≥3 days (3 points); duration of reported fever: 1+ days (1 point); Confirmed temperature: ≥37·5°C (confirmed by field worker) (2 points); Dehydration: Some (2 points), severe (3 points)."), ref_symbols = c("††"), part = "body") %>%
+  # Set fonts
+  font(fontname = "Arial Narrow", part= "all") %>%
+  fontsize(size = 5, part = "all") %>%
+  fontsize(size = 8, part = "header") %>%
+  # column width
+  width(j = 1, width=1, unit = "in") %>%
+  width(j = c(2:17), width=0.56, unit = "in") %>%
+  # Fill in cells
+  bg(i = c(1,7,29), part = "body", bg = "grey") %>% # add gray background
+  # Add lines
+  vline(part = "all", j = c(3,5,7,9,11,13,15), border = border_style) %>%     # gray lines
+  hline(part = "body", i = c(9,10,13,17,21,22,25,33,37), border = border_style) %>%     # gray lines
+  hline_top(border = border_style2, part = "header") %>%
+  hline_top(border = border_style2, part = "body") %>%
+  hline(part = "body", i = c(1,6,7,28,29,41), border = border_style2) %>% 
+  # remove lines in header
+  hline(part= "header", i=c(1,2), border = border_style4) %>% # makes disappear
+  # Set significant digits
+  colformat_double(j=c(2:17),digits=2, na_str = "") %>%
+  # Align cells
+  valign(i = c(1:3), valign = "bottom", part = "header") %>%
+  flextable::align(align = "center", j = c(2:17), part = "all") %>%     
+  bold(j = c(16,17), bold = TRUE, part = "body")  %>%  
+  bold(i = c(1:3), bold = TRUE, part = "header")  %>% 
+  bold(i = c(1,7,8:10,11,14,18,22,23,26,29,30,34,38), j = 1, bold = TRUE, part = "body")  %>%   
+  merge_at(i = 1:3, j = 1, part = "header") %>%
+  merge_at(i = 1, j = 2:17, part = "header") %>%
+  merge_at(i = 2, j = c(2:3), part = "header") %>%
+  merge_at(i = 2, j = c(4:5), part = "header") %>%
+  merge_at(i = 2, j = c(6:7), part = "header") %>%
+  merge_at(i = 2, j = c(8:9), part = "header") %>%
+  merge_at(i = 2, j = c(10:11), part = "header") %>%
+  merge_at(i = 2, j = c(12:13), part = "header") %>%
+  merge_at(i = 2, j = c(14:15), part = "header") %>%
+  merge_at(i = 2, j = c(16:17), part = "header") %>%  
+  merge_at(i = 1, j = c(1:17), part = "body") %>%
+  merge_at(i = 7, j = c(1:17), part = "body") %>%
+  # Line spacing 
+  line_spacing(space = , part = "all") %>% 
+  padding(padding = 0, part = "all") %>%
+  # Add italicized text
+  compose(i = 1, j=2, part = "header",
+    value = as_paragraph(
+      "Adjusted ",
+      as_chunk("Shigella", props = fp_text(italic = TRUE, bold = TRUE, font.size = 8, font.family = "Arial Narrow")),
+      " incidence per 100 child-years (95% CI)*")) %>%
+  compose(i = 14, j=1, part = "body",
+    value = as_paragraph(
+      as_chunk("Shigella", props = fp_text(italic = TRUE, bold = TRUE, font.size = 5, font.family = "Arial Narrow")),
+      " mortality score§")) %>%
+  compose(i = c(31,35,39), j=1, part = "body",
+    value = as_paragraph(
+      "Bivalent (",
+      as_chunk("S. flexneri", props = fp_text(italic = TRUE, bold = TRUE, font.size = 5, font.family = "Arial Narrow")),
+      " 2a or ",
+      as_chunk("S. sonnei", props = fp_text(italic = TRUE, bold = TRUE, font.size = 5, font.family = "Arial Narrow")),
+      ")")) %>%
+  compose(i = c(32,36,40), j=1, part = "body",
+    value = as_paragraph(
+      "Quadrivalent (",
+      as_chunk("S. flexneri", props = fp_text(italic = TRUE, bold = TRUE, font.size = 5, font.family = "Arial Narrow")),
+      " 2a, 3a, or 6 or ",
+      as_chunk("S. sonnei", props = fp_text(italic = TRUE, bold = TRUE, font.size = 5, font.family = "Arial Narrow")),
+      ")")) %>%
+  compose(i = c(33,37,41), j=1, part = "body",
+    value = as_paragraph(
+      "Quadrivalent (",
+      as_chunk("S. flexneri", props = fp_text(italic = TRUE, bold = TRUE, font.size = 5, font.family = "Arial Narrow")),
+      " 1b, 2a, or 3a or ",
+      as_chunk("S. sonnei", props = fp_text(italic = TRUE, bold = TRUE, font.size = 5, font.family = "Arial Narrow")),
+      ")"))
+supptable10_subgroups
+
+# Export
+save_as_docx(supptable10_subgroups, values = NULL, path=paste0("./Primary manuscript/SuppTable10_Subgroups_",today,".docx"), pr_section = sect_properties1)
+```
+
+```{r suppfig2_seasonality}
+season_data <- country_culture %>%
+  ungroup() %>%
+  filter(!is.na(c_month) & is.na(sens1) & is.na(sens2) & is.na(sens3)) %>%
+  mutate(type="Culture") %>%
+  bind_rows(country_tac %>% filter(!is.na(c_month) & is.na(sens1) & is.na(sens2) & is.na(sens3)) %>% mutate(type="qPCR")) %>%
+  mutate(number=as.numeric(c_month),
+         month=month(c_month),
+         year=year(c_month),
+         month_factor=factor(month,levels=1:12,labels=c("Jan","Feb","Mar","Apr","May","June","July","Aug","Sept","Oct","Nov","Dec"))) %>%
+  left_join(boot_season |> filter(inc_type=="overall") |>
+                           rename(date=month) |>
+                           mutate(month=month(as.Date(date, format="%Y-%M-%d")),
+                                  year=year(as.Date(date, format="%Y-%M-%d")),
+                                  type=ifelse(tac_culture=="culture","Culture","qPCR")), by = c("country","month","year","type")) |>
+  select(country, adj, c_month, month, month_factor,year, type, number, est, starts_with("perc")) |>
+  # Create grouping variable
+  mutate(year_group = ifelse(month >= 8, 
+                        paste(year, year + 1, sep = "-"),  # Aug to Dec
+                        paste(year - 1, year, sep = "-")),  # Jan to Jul
+         year_group2=ifelse((month >= 7 & country=="Bangladesh") | (month >= 8 & country!="Bangladesh"), 
+                        paste(year, year + 1, sep = "-"),  # Aug to Dec all sites but Jul - Dec Bangladesh
+                        paste(year - 1, year, sep = "-")),  # Jan to Jul all sites but Jan to Jun Bangladesh
+         month_factor=factor(case_when(month==8 ~ 1,
+                                       month==9 ~ 2,
+                                       month==10 ~ 3,
+                                       month==11 ~ 4,
+                                       month==12 ~ 5,
+                                       month==1 ~ 6,
+                                       month==2 ~ 7,
+                                       month==3 ~ 8,
+                                       month==4 ~ 9,
+                                       month==5 ~ 10,
+                                       month==6 ~ 11,
+                                       month==7 ~ 12), levels=1:12, labels=c("Aug","Sep","Oct","Nov",
+                                                                           "Dec","Jan","Feb","Mar",
+                                                                           "Apr","May","June","July")),
+         month_factor2=factor(case_when(month==7 & country=="Bangladesh" ~ 0,
+                                        month==8 ~ 1,
+                                        month==9 ~ 2,
+                                        month==10 ~ 3,
+                                        month==11 ~ 4,
+                                        month==12 ~ 5,
+                                        month==1 ~ 6,
+                                        month==2 ~ 7,
+                                        month==3 ~ 8,
+                                        month==4 ~ 9,
+                                        month==5 ~ 10,
+                                        month==6 ~ 11,
+                                        month==7 ~ 12), levels=0:12, labels=c("Jul","Aug","Sep","Oct","Nov",
+                                                                           "Dec","Jan","Feb","Mar",
+                                                                           "Apr","May","June","July")),
+         month_factor3=factor(month, levels=1:12, labels=c("Jan","Feb","Mar","Apr","May","June","July",
+                                                           "Aug","Sep","Oct","Nov","Dec"))) 
+
+# Run plot
+figure4_season <- ggplot(season_data |> filter(!is.na(month_factor3)), aes(x= month_factor3,y=adj,color=factor(year),group=factor(year))) +
+  geom_line(size = 1) +
+  geom_ribbon(aes(ymin = perc_cis_lower, ymax = perc_cis_upper, fill = factor(year)), 
+              alpha = 0.2, color = NA) +
+  ggh4x::facet_grid2(country ~ type,scales = "free_y",independent="y") +
+  theme_minimal() +
+labs(x = "Month", y = "Adjusted incidence per 100 child-years", color = "Study year", fill = "Study year") +  
+  theme(axis.text.x = element_text(angle = 45, size=8, hjust = 1, color="black"),
+        axis.text.y = element_text(size=8, color="black"),
+        legend.position="bottom", 
+        legend.text=element_text(size=10),
+        strip.text = element_text(face="bold",size=9),
+        plot.margin = grid::unit(c(0.25, 0.25, 0.25, 0.25), "cm")) +
+  scale_fill_manual(values=c("#332288FF","#44AA99FF","#CC6677FF")) +
+  scale_color_manual(values=c("#332288FF","#44AA99FF","#CC6677FF")) 
+figure4_season
+
+# Export
+ggsave(plot = figure4_season, width = 6.5, height = 7, dpi = 600, filename = paste0("./Primary manuscript/Fig4_Seasonality_",today,".png"))
+ggsave(plot = figure4_season, width = 6.5, height = 7, dpi = 600, filename = paste0("./Primary manuscript/Fig4_Seasonality_",today,".eps"))
+```
+
+```{r supptable11_serotypes}
+# Create any protection variables
+serotype_dist2 <- serotype_dist |>
+  mutate(quad_any=case_when(quad==1 | quad_cross==1 ~ 1,
+                            quad==0 & quad_cross==0 ~ 0),
+         biv_any=case_when(biv==1 | biv_cross==1 ~ 1,
+                           biv==0 & biv_cross==0 ~ 0),
+         quad2_any=case_when(quad2==1 | quad2_cross==1 ~ 1,
+                            quad2==0 & quad2_cross==0 ~ 0))
+
+# Pull n (%) of serogroups, S. flexneri serotype, S. dysenteraie serotype and vaccine formulations
+serotype_site <- serotype_dist2 |>
+  filter(serogroup=="S. flexneri") |>
+  group_by(enroll_site,source,serotype) |>
+  summarise(n=n()) %>%
+  mutate(perc=(n/sum(n))*100,
+         N=sum(n)) |>
+  ungroup()
+
+serotype_total <- serotype_dist2 |>
+  filter(serogroup=="S. flexneri") |>
+  mutate(enroll_site=8) |>
+  group_by(enroll_site,source,serotype) |>
+  summarise(n=n()) %>%
+  mutate(perc=(n/sum(n))*100,
+         N=sum(n)) |>
+  ungroup()
+
+serogroup_site <- serotype_dist2 |>
+  group_by(enroll_site,source,serogroup) |>
+  summarise(n=n()) %>%
+  mutate(perc=(n/sum(n))*100,
+         N=sum(n)) |>
+  ungroup()
+
+serogroup_total <- serotype_dist2 |>
+  mutate(enroll_site=8) |>
+  group_by(enroll_site,source,serogroup) |>
+  summarise(n=n()) %>%
+  mutate(perc=(n/sum(n))*100,
+         N=sum(n)) |>
+  ungroup()
+
+serotype_dys_site <- serotype_dist2 |>
+  filter(serogroup=="S. dysenteriae") |>
+  mutate(serotype_dys=factor(case_when(dys_serotype==1 ~ 1,
+                                       dys_serotype %in% c(2,3) ~ 2), levels=1:2, labels=c("1","Non-Type 1"))) |>
+  group_by(enroll_site,source,serotype_dys) |>
+  summarise(n=n()) %>%
+  mutate(perc=(n/sum(n))*100,
+         N=sum(n)) |>
+  ungroup()
+
+serotype_dys_total <- serotype_dist2 |>
+  filter(serogroup=="S. dysenteriae") |>
+  mutate(enroll_site=8,
+         serotype_dys=factor(case_when(dys_serotype==1 ~ 1,
+                                       dys_serotype %in% c(2,3) ~ 2), levels=1:2, labels=c("1","Non-Type 1"))) |>
+  group_by(enroll_site,source,serotype_dys) |>
+  summarise(n=n()) %>%
+  mutate(perc=(n/sum(n))*100,
+         N=sum(n)) |>
+  ungroup()
+
+quad_site <- serotype_dist2 |>
+  group_by(enroll_site,source,quad) |>
+  summarise(n=n()) %>%
+  mutate(perc=(n/sum(n))*100,
+         N=sum(n)) |>
+  filter(quad==1) |>
+  ungroup()
+
+quad_total <- serotype_dist2 |>
+  mutate(enroll_site=8) |>
+  group_by(enroll_site,source,quad) |>
+  summarise(n=n()) %>%
+  mutate(perc=(n/sum(n))*100,
+         N=sum(n)) |>
+  filter(quad==1) |>
+  ungroup()
+
+quad2_site <- serotype_dist2 |>
+  group_by(enroll_site,source,quad2) |>
+  summarise(n=n()) %>%
+  mutate(perc=(n/sum(n))*100,
+         N=sum(n)) |>
+  filter(quad2==1) |>
+  ungroup()
+
+quad2_total <- serotype_dist2 |>
+  mutate(enroll_site=8) |>
+  group_by(enroll_site,source,quad2) |>
+  summarise(n=n()) %>%
+  mutate(perc=(n/sum(n))*100,
+         N=sum(n)) |>
+  filter(quad2==1) |>
+  ungroup()
+
+biv_site <- serotype_dist2 |>
+  group_by(enroll_site,source,biv) |>
+  summarise(n=n()) %>%
+  mutate(perc=(n/sum(n))*100,
+         N=sum(n)) |>
+  filter(biv==1) |>
+  ungroup()
+
+biv_total <- serotype_dist2 |>
+  mutate(enroll_site=8) |>
+  group_by(enroll_site,source,biv) |>
+  summarise(n=n()) %>%
+  mutate(perc=(n/sum(n))*100,
+         N=sum(n)) |>
+  filter(biv==1) |>
+  ungroup()
+
+quad_cross_site <- serotype_dist2 |>
+  group_by(enroll_site,source,quad_any) |>
+  summarise(n=n()) %>%
+  mutate(perc=(n/sum(n))*100,
+         N=sum(n)) |>
+  filter(quad_any==1) |>
+  ungroup()
+
+quad_cross_total <- serotype_dist2 |>
+  mutate(enroll_site=8) |>
+  group_by(enroll_site,source,quad_any) |>
+  summarise(n=n()) %>%
+  mutate(perc=(n/sum(n))*100,
+         N=sum(n)) |>
+  filter(quad_any==1) |>
+  ungroup()
+
+quad2_cross_site <- serotype_dist2 |>
+  group_by(enroll_site,source,quad2_any) |>
+  summarise(n=n()) %>%
+  mutate(perc=(n/sum(n))*100,
+         N=sum(n)) |>
+  filter(quad2_any==1) |>
+  ungroup()
+
+quad2_cross_total <- serotype_dist2 |>
+  mutate(enroll_site=8) |>
+  group_by(enroll_site,source,quad2_any) |>
+  summarise(n=n()) %>%
+  mutate(perc=(n/sum(n))*100,
+         N=sum(n)) |>
+  filter(quad2_any==1) |>
+  ungroup()
+
+biv_cross_site <- serotype_dist2 |>
+  group_by(enroll_site,source,biv_any) |>
+  summarise(n=n()) %>%
+  mutate(perc=(n/sum(n))*100,
+         N=sum(n)) |>
+  filter(biv_any==1) |>
+  ungroup()
+
+biv_cross_total <- serotype_dist2 |>
+  mutate(enroll_site=8) |>
+  group_by(enroll_site,source,biv_any) |>
+  summarise(n=n()) %>%
+  mutate(perc=(n/sum(n))*100,
+         N=sum(n)) |>
+  filter(biv_any==1) |>
+  ungroup()
+
+# Build final dataset
+serotype_dist_titles <- data.frame(order=c(0,6,24,25,27,31), 
+                                   label=c("Shigella serogroup: n/N (%)",
+                                           "S. flexneri serotype: n/N (%)",
+                                           "S. dysenteriae serotype: n/N (%)",
+                                           "Type 1",
+                                           "Vaccine targets: n/N (%)",
+                                           "Vaccine targets including cross-protection: n/N (%)"))
+
+supptable11_data <- bind_rows(serogroup_site,serogroup_total,
+                             serotype_site,serotype_total,
+                             serotype_dys_site,serotype_dys_total,
+                             quad_site,quad_total,
+                             quad2_site,quad2_total,
+                             biv_site,biv_total,
+                             quad_cross_site,quad_cross_total,
+                             quad2_cross_site,quad2_cross_total,
+                             biv_cross_site,biv_cross_total) |>
+  mutate(label=case_when(!is.na(serogroup) ~ serogroup,
+                         !is.na(serotype) ~ serotype,
+                         !is.na(serotype_dys) ~ serotype_dys,
+                         biv==1 ~ "Bivalent formulation",
+                         quad==1 ~ "Quadrivalent formulation",
+                         quad2==1 ~ "Alternate quadrivalent formulation",
+                         biv_any==1 ~ "Bivalent formulation ",
+                         quad_any==1 ~ "Quadrivalent formulation ",
+                         quad2_any==1 ~ "Alternate quadrivalent formulation "),
+         indicator=paste0(n,"/",N," (",sprintf("%.1f", round(perc,1)), ")"),
+         indicator=gsub("\\.", "·",   indicator),
+         order=case_when(label=="S. boydii" ~ 1,
+                         label=="S. dysenteriae" ~ 2,
+                         label=="S. flexneri" ~ 3,
+                         label=="S. sonnei" ~ 4,
+                         label=="Undetermined" ~ 5,
+                         label=="1a" ~ 7,
+                         label=="1b" ~ 8,
+                         label=="1c" ~ 9,
+                         label=="1d" ~ 10,
+                         label=="2a" ~ 11,
+                         label=="2b" ~ 12,
+                         label=="3a" ~ 13,
+                         label=="3b" ~ 14,
+                         label=="4a" ~ 15,
+                         label=="4b" ~ 16,
+                         label=="5a" ~ 17,
+                         label=="5b" ~ 18,
+                         label=="6" ~ 19,
+                         label=="7a" ~ 20,
+                         label=="X" ~ 21,
+                         label=="Y" ~ 22,
+                         label=="Non-typeable" ~ 23,
+                         label=="Type 1" ~ 25,
+                         label=="Non-Type 1" ~ 26,
+                         label=="Bivalent formulation" ~ 28,
+                         label=="Quadrivalent formulation" ~ 29,
+                         label=="Alternate quadrivalent formulation" ~ 30,
+                         label=="Bivalent formulation " ~ 32,
+                         label=="Quadrivalent formulation " ~ 33,
+                         label=="Alternate quadrivalent formulation " ~ 34)) |>
+  select(enroll_site,label, indicator, order, source) |>
+  # Pivot wider
+  pivot_wider(values_from = "indicator", names_from = c("source","enroll_site")) |>
+  # Add titles/missing groups
+  bind_rows(serotype_dist_titles) |>
+  arrange(order) |>
+  # customizations |>
+  mutate(culture_1=ifelse(order %in% c(7:19,21,22,23) & is.na(culture_1),"0/95 (0·0)",
+                   ifelse(order==25,"0/10 (0·0)",
+                   ifelse(order==20,"-",culture_1))),
+         culture_2=ifelse(order %in% c(7:19,21,22,23) & is.na(culture_2),"0/48 (0·0)",
+                   ifelse(order==25,"0/2 (0·0)",
+                   ifelse(order==20,"-",culture_2))),
+         culture_3=ifelse(order %in% c(7:19,21,22,23) & is.na(culture_3),"0/38 (0·0)",
+                   ifelse(order==5,"0/99 (0·0)",
+                   ifelse(order==25,"0/9 (0·0)",
+                   ifelse(order==20,"-",culture_3)))),
+         culture_4=ifelse(order %in% c(7:19,21,22,23) & is.na(culture_4),"0/54 (0·0)",
+                   ifelse(order==25,"0/2 (0·0)",
+                   ifelse(order==5 & is.na(culture_4),"0/82 (0·0)",
+                   ifelse(order==20,"-",culture_4)))),
+         culture_5=ifelse(order %in% c(7:19,21,22,23) & is.na(culture_5),"0/85 (0·0)",
+                   ifelse(order==25,"0/10 (0·0)",
+                   ifelse(order==20,"-",culture_5))),
+         culture_6=ifelse(order %in% c(7:19,21,22,23) & is.na(culture_6),"0/80 (0·0)",
+                   ifelse(order==25,"0/1 (0·0)",
+                   ifelse(order %in% c(1,5) & is.na(culture_6),"0/114 (0·0)",
+                   ifelse(order==20,"-",culture_6)))),
+         culture_7=ifelse(order %in% c(7:19,21,22,23) & is.na(culture_7),"0/97 (0·0)",
+                   ifelse(order==25,"0/1 (0·0)",
+                   ifelse(order==20 & is.na(culture_7),"-",culture_7))),
+         culture_8=ifelse(order %in% c(7:19,21,22,23) & is.na(culture_8),"0/497 (0·0)",
+                   ifelse(order==25,"0/35 (0·0)",
+                   ifelse(order==20,"-",culture_8))),
+         tac_1=ifelse(order %in% 7:23 & is.na(tac_1),"0/121 (0·0)",
+               ifelse(order %in% c(1,2,23,25,26),"-",tac_1)),
+         tac_2=ifelse(order %in% 7:23 & is.na(tac_2),"0/72 (0·0)",
+               ifelse(order %in% c(1,2,23,25,26),"-",tac_2)),
+         tac_3=ifelse(order %in% 7:23 & is.na(tac_3),"0/43 (0·0)",
+               ifelse(order %in% c(1,2,23,25,26),"-",tac_3)),
+         tac_4=ifelse(order %in% 7:23 & is.na(tac_4),"0/96 (0·0)",
+               ifelse(order %in% c(1,2,23,25,26),"-",tac_4)),
+         tac_5=ifelse(order %in% 7:23 & is.na(tac_5),"0/133 (0·0)",
+               ifelse(order %in% c(1,2,23,25,26),"-",tac_5)),
+         tac_6=ifelse(order %in% 7:23 & is.na(tac_6),"0/111 (0·0)",
+               ifelse(order %in% c(1,2,23,25,26),"-",tac_6)),
+         tac_7=ifelse(order %in% 7:23 & is.na(tac_7),"0/180 (0·0)",
+               ifelse(order %in% c(1,2,23,25,26),"-",tac_7)),
+         tac_8=ifelse(order %in% 7:23 & is.na(tac_8),"0/756 (0·0)",
+               ifelse(order %in% c(1,2,23,25,26),"-",tac_8))) |>
+  select(-order)
+  
+supptable11 <-qflextable(supptable11_data) %>%
+   add_header_row(
+    top = TRUE,                # New header goes on top of existing header row
+    values = c("",
+               "Bangladesh", 
+               "",    
+               "Kenya",
+               "",
+               "Malawi",        
+               "",             
+               "Mali",
+               "",
+               "Pakistan",
+               "",
+               "Peru",
+               "",
+               "The Gambia",
+               "",
+               "Total",
+               "")) %>%
+  set_header_labels(         # Rename the columns in original header row
+      value = "", 
+      culture_1 = "Culture",                  
+      tac_1 = "qPCR", 
+      culture_2 = "Culture",                  
+      tac_2 = "qPCR", 
+      culture_3 = "Culture",                  
+      tac_3 = "qPCR", 
+      culture_4 = "Culture",                  
+      tac_4 = "qPCR", 
+      culture_5 = "Culture",                  
+      tac_5 = "qPCR", 
+      culture_6 = "Culture",                  
+      tac_6 = "qPCR", 
+      culture_7 = "Culture",                  
+      tac_7 = "qPCR", 
+      culture_8 = "Culture",                  
+      tac_8 = "qPCR")  %>%
+  # Add footnotes
+    footnote(i = 2, j = c(2,4,6,8,10,12,14,16),value = as_paragraph(" S. flexneri 7a is not assessed by culture"),ref_symbols = c("1"), part = "header", inline = FALSE) %>%
+  footnote(i = 2, j = c(3,5,7,9,11,13,15,17),value = as_paragraph(" Defined as an ipaH cycle threshold (Ct) below the attributable cutoff. S. boydii and S. dysentariae are not assessed by qPCR."),ref_symbols = c("†"), part = "header", inline = FALSE) %>%
+  footnote(i = 6, j = 1,value = as_paragraph(" Undetermined by culture means any serotypes/subserotypes not listed in the table. Undetermined by qPCR means Shigella detected by qPCR but molecular criteria to assign species/serotype to S. sonnei or S. flexneri was not met or species not tested."),ref_symbols = "‡", part = "body", inline = FALSE) %>%
+  footnote(i = 28, j = 1,value = as_paragraph(" S. flexneri 2a or S. sonnei."),ref_symbols = "§", part = "body", inline = FALSE) %>%
+  footnote(i = 29, j = 1,value = as_paragraph(" S. flexneri 2a, 3a or 6 or S. sonnei."),ref_symbols = "∥", part = "body", inline = FALSE) %>%
+  footnote(i = 30, j = 1,value = as_paragraph(" S. flexneri 1b, 2a or 3a or S. sonnei."),ref_symbols = "¶", part = "body", inline = FALSE) %>%
+  footnote(i = 32, j = 1,value = as_paragraph(" S. flexneri 2a or S. sonnei plus cross-protection against S. flexneri 1a, 2b, 3b, 4a and 5a."),ref_symbols = "**", part = "body", inline = FALSE) %>%
+  footnote(i = 33, j = 1,value = as_paragraph(" S. flexneri 2a, 3a or 6 or S. sonnei plus cross-protection against S. flexneri 1a, 2b, 3b, 4a, 4b, 5a, 5b and X."),ref_symbols = "††", part = "body", inline = FALSE) %>%
+  footnote(i = 34, j = 1,value = as_paragraph(" S. flexneri 1b, 2a or 3a or S. sonnei plus cross-protection against S. flexneri 1a, 2b, 3b, 4a, 4b, 5a, 5b and X."),ref_symbols = "‡‡", part = "body", inline = FALSE) %>%
+# Set fonts
+  font(fontname = "Arial Narrow", part= "all") %>%
+  fontsize(size = 7, part = "all") %>%
+  # column width
+  width(j = 1, width=1, unit = "in") %>%
+  width(j = c(2:17), width=0.55, unit = "in") %>%
+  # Add lines
+  vline(part = "all", j = c(3,5,7,9,11,13,15), border = border_style) %>%     # gray lines
+  hline_top(border = border_style2, part = "header") %>%
+  hline_top(border = border_style2, part = "body") %>%
+  hline(part = "body", i = c(6,23,26,30,34), border = border_style2) %>% 
+  hline(part= "header", i=1, border = border_style4) %>% # makes disappear
+  # Align cells
+  valign(i = 1, j= 1:2, valign = "bottom", part = "header") %>%
+  flextable::align(align = "center", j = c(2:17), part = "all") %>%     
+  bold(j=c(16,17), bold = TRUE, part = "body")  %>%  
+  bold(i = c(1), bold = TRUE, part = "header")  %>%  
+  bold(i = c(1,7,24,27,31), bold = TRUE, part = "body")  %>%   
+  italic(i=2:5, j=1, italic = TRUE, part = "body") %>%
+  merge_at(i = 1:2, j = c(1), part = "header") %>%
+  merge_at(i = 1, j = c(2:3), part = "header") %>%
+  merge_at(i = 1, j = c(4:5), part = "header") %>%
+  merge_at(i = 1, j = c(6:7), part = "header") %>%
+  merge_at(i = 1, j = c(8:9), part = "header") %>%
+  merge_at(i = 1, j = c(10:11), part = "header") %>%
+  merge_at(i = 1, j = c(12:13), part = "header") %>%
+  merge_at(i = 1, j = c(14:15), part = "header") %>%
+  merge_at(i = 1, j = c(16:17), part = "header") %>%
+  merge_at(i = 1, j = 1:3, part = "body") %>%
+  merge_at(i = 7, j = 1:3, part = "body") %>%
+  merge_at(i = 24, j = 1:3, part = "body") %>%
+  merge_at(i = 31, j = 1:3, part = "body") %>%
+  # Line spacing %>%
+  line_spacing(space = 1.15, part = "all") %>% 
+  padding(padding = 0, part = "all") |>
+  # Add formatted text
+  compose(i = 1, j = 1, part = "body",
+    value = as_paragraph(as_i("Shigella")," serogroup: n/N (%)")) |>
+  compose(i = 7, j = 1, part = "body",
+    value = as_paragraph(as_i("S. flexneri")," serotype: n/N (%)")) |>
+  compose(i = 24, j = 1, part = "body",
+    value = as_paragraph(as_i("S. dysenteriae")," serotype: n/N (%)"))
+supptable11
+
+# Export
+save_as_docx(supptable6, values = NULL, path=paste0("./Primary manuscript/SuppTable11_SerotypeDist_",today,".docx"), pr_section = sect_properties1)
+```
+
+```{r supptabl12_cod}
+supptable12_data <- cause_of_death  |> 
+  select(-date_of_death) |>
+  arrange(country)
+  
+supptable12 <-qflextable(supptable12_data) %>%
+   add_header_row(
+    top = TRUE,                # New header goes on top of existing header row
+    values = c("",
+               "", 
+               "",    
+               "",
+               "Cause of death",
+               "",             
+               "",
+               "")) |>
+  set_header_labels(         # Rename the columns in original header row
+      country = "Country site",
+      enroll_to_death = "Time from enrollment to death (days)",
+      age_at_death = "Age at death (months)",
+      shigella = "Shigella at enrollment",
+      cause_1a = "Immediate (1a)",
+      cause_1b = "Distal (1b)",
+      cause_1c = "Most distal (1c)",
+      cause_2_final = "Underlying (2)")  |>
+  # Add footnotes
+    footnote(i = 1, j = 1,value = as_paragraph("ICD-11: International Classification of Diseases 11th Revision."),ref_symbols = c(" "), part = "header", inline = FALSE) |>
+  footnote(i = 1, j = 5,value = as_paragraph(" International Classification of Diseases, Eleventh Revision (ICD-11), World Health Organization (WHO) 2019/2021 https://icd.who.int/browse11. Licensed under Creative Commons Attribution-NoDerivatives 3.0 IGO licence (CC BY-ND 3.0 IGO). Causes of death are agreed upon by a panel of ICD-11 trained clinicians using information from the child’s death certificate (if available), caregiver interview (if available), and case notes from the child’s care team. Missing cause of death are for deaths that have not yet been reviewed by the cause of death panel."),ref_symbols = c("*"), part = "header", inline = FALSE) |>
+  footnote(i = 2, j = 4,value = as_paragraph(" By culture isolation or below the qPCR attributable cycle threshold cutoff."),ref_symbols = "†", part = "header", inline = FALSE) |>
+# Set fonts
+  font(fontname = "Arial Narrow", part= "all") |>
+  fontsize(size = 7, part = "all") |>
+  fontsize(size = 8, part = "header") |>
+  # column width
+  width(j = 1:4, width=0.75, unit = "in") %>%
+  width(j = 5:8, width=1.5, unit = "in") %>%
+  # Add lines
+  hline_top(border = border_style2, part = "header") %>%
+  hline_top(border = border_style2, part = "body") %>%
+  hline(part = "body", i = 22, border = border_style2) %>% 
+  hline(part= "header", i=1, j= 1:4, border = border_style4) %>% # makes disappear
+  # Align cells
+  valign(i = 1, j= 1:2, valign = "bottom", part = "header") %>%
+  flextable::align(align = "center", j = c(2:8), part = "header") %>%   
+  flextable::align(align = "center", j = c(2:4), part = "body") %>%    
+  bold(i = 1:2, bold = TRUE, part = "header")  %>%  
+  italic(i = c(1,3,8,13,17), j = 4, italic = TRUE, part = "body") |>
+  merge_at(i = 1, j = 5:8, part = "header") %>%
+  # Line spacing %>%
+  line_spacing(space = 1, part = "all") %>% 
+  padding(padding = 0, part = "all") |>
+  # Add formatted text
+  compose(i = 2, j = 4, part = "header",
+    value = as_paragraph(as_i("Shigella")," at enrollment†")) |>
+  compose(i = c(2,4:7,9:12,14:16,18:22), j = 4, part = "body",
+    value = as_paragraph("No " ,as_i("Shigella")))
+supptable12
+
+# Export
+save_as_docx(supptable12, values = NULL, path=paste0("./Primary manuscript/SuppTable12_COD_",today,".docx"), pr_section = sect_properties1)
+```
+
+```{r suppfig3_abx, echo=FALSE, include=TRUE}
+# Pull out data for plot
+suppfig3_data <- abx_fig |>
+  filter(type=="All isolates" | type=="Site - all isolates") |>
+  mutate(country_factor=factor(ifelse(is.na(enroll_site),8,enroll_site),levels=1:8,labels=c("Bangladesh (N=200)",
+                                                                                           "Kenya (N=83)",
+                                                                                           "Malawi (N=99)",
+                                                                                           "Mali (N=82)",
+                                                                                           "Pakistan (N=160)",
+                                                                                           "Peru (N=114)",
+                                                                                           "The Gambia (N=146)",
+                                                                                           "Total (N=884)")),
+         abx=factor(case_when(antibiotic=="Ampicillin" ~ 1,
+                                      antibiotic=="Azithromycin" ~ 2,
+                                      antibiotic=="Ciprofloxacin" ~ 3,
+                                      antibiotic=="Ceftriaxone" ~ 4,
+                                      antibiotic=="Nalidixic acid" ~ 5,
+                                      antibiotic=="Pivemicellinam" ~ 6,
+                                      antibiotic=="Trimethoprim/sulfamethoxazole" ~ 7),levels=1:7,  labels=c("AMP","AZI","CIP","CEF","NA","PIV","TRI")))
+         
+# RUn plot
+suppfigure3 <- suppfig3_data |>
+ggplot(aes(x=fct_rev(abx),y=`Number of Samples`,fill=fct_rev(Resistance),label=Percent)) +
+  geom_col(position = "fill") +
+  coord_flip(clip = 'off') +
+  theme_minimal()+
+  ylab("Percent of isolates") +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~country_factor,ncol=1) +
+  theme(legend.title = element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.x = element_text(size=8),
+        axis.text.y = element_text(size=6, face="bold"),
+        axis.title.x = element_text(size=8,face="bold"),
+        legend.text = element_text(size=8,face="bold"),
+        strip.text.x = element_text(size=8,angle=0,face="bold"),
+        legend.position="bottom") +
+ # scale_fill_brewer(palette = 'Dark2',direction = -1) +
+   scale_fill_manual(values=c("#CC6677FF","#332288FF","#44AA99FF")) +
+  guides(fill = guide_legend(reverse = TRUE))
+suppfigure3
+
+# Export vector file
+ggsave(plot = suppfigure3, width = 6.5, height = 7.5, dpi = 600, filename = paste0("./Primary Manuscript/SuppFig3_AMR_",today,".png"))
+ggsave(plot = suppfigure3, width = 6.5, height = 7.5, dpi = 600, filename = paste0("./Primary Manuscript/SuppFig3_AMR_",today,".eps"))
+```
+
+```{r suppfig4_oth_path, echo=FALSE, include=TRUE}
+suppfig4_data <- oth_path %>%  
+  filter(cat %in% c(3,4,5,6,7,8)) %>%
+  mutate(label=target) |>
+  # generate CIs
+  mutate(
+    ci = binom::binom.confint(n, N, conf.level = 0.95, method = "wilson"),
+    lower = ci$lower * 100,
+    upper = ci$upper * 100
+  ) %>%
+  mutate(country=factor(case_when(groupid=="Bangladesh" ~ 1,
+                                 groupid=="Kenya" ~ 2,
+                                 groupid=="Malawi" ~ 3,
+                                 groupid=="Mali" ~ 4,
+                                 groupid=="Pakistan" ~ 5,
+                                 groupid=="Peru" ~ 6,
+                                 groupid=="Gambia" ~ 7,
+                                 groupid=="Total" ~ 8), levels=1:8, labels=c("Bangladesh","Kenya","Malawi","Mali","Pakistan","Peru","The Gambia","Total")),
+         test=factor(case_when(cat %in% c(3,4,5) ~ 1,
+                               cat %in% c(6,7,8) ~ 2), levels=1:2,labels=c("<i>Shigella</i> qPCR-attributable","<i>Shigella</i> culture positive")),
+         severity=factor(case_when(cat %in% c(3,6) ~ 1,
+                                   cat %in% c(4,7) ~ 2,
+                                   cat %in% c(5,8) ~ 3), levels=1:3,labels=c("All cases","MVS moderate/severe or dysentery cases","GEMS MSD cases")),
+         pathogen=ifelse(label=="Any enteric pathogen","Any enteric co-pathogen",label)) |>
+  arrange(pathogen,country) |>
+  select(pathogen,percent,country,test,severity,lower,upper,n,N) |>
+  filter(country=="Total") |>
+  # create formatted label
+  mutate(label=paste0(paste0(sprintf("%.1f", percent), "% (",sprintf("%.1f", lower),"-",sprintf("%.1f", upper),"%)")),
+         label=gsub("\\.", "·",  label),)
+
+# Run graph
+  # Italicize labels
+  y_labels_italic <- c('Any enteric co-pathogen',
+                       'ST-ETEC', 
+                       'Rotavirus',  
+                       expression(italic('Cryptosporidium')), 
+                       'Adenovirus 40/41',  
+                       expression(italic('C. jejuni/coli')), 
+                       expression(italic('Salmonella')), 
+                       'tEPEC', 
+                       'Norovirus GII', 
+                       'Sapovirus',  
+                       expression(italic('V. cholerae')),
+                       'Astrovirus', 
+                       expression(italic('C. belli')), 
+                       expression(italic('C. cayetanensis')), 
+                       expression(italic('Aeromonas')), 
+                       expression(italic('E. histolytica'))) 
+  # Set order of labels
+  level_order3 <- c('Any enteric co-pathogen',
+                    'ST-ETEC', 
+                    'Rotavirus',  
+                    'Cryptosporidium', 
+                    'Adenovirus 40/41',  
+                    'Campylobacter jejuni/coli', 
+                    'Salmonella', 
+                    'tEPEC', 
+                    'Norovirus GII', 
+                    'Sapovirus',  
+                    'Vibrio cholerae',
+                    'Astrovirus', 
+                    'Cystoisospora belli', 
+                    'Cyclospora cayetanensis', 
+                    'Aeromonas', 
+                    'Entamoeba histolytica') 
+
+suppfig4 <- ggplot(suppfig4_data ,aes(y=pathogen, x=percent,xmin=lower, xmax=upper, fill=test)) +
+  geom_bar(stat="identity") +
+  geom_errorbar(colour="black", width=0, size=0.25) +
+  geom_text(aes(label=label),
+          hjust = -.4,               # nudges text to the right of the bar
+          size = 1.7,                 # adjust size as needed
+          fontface = "bold",          # optional: bold font
+          color = "black") +           # text color
+  ggh4x::facet_grid2(test ~ severity) +
+  labs(x="Prevalence (%)",y=" ") +
+  theme(legend.position = "none",
+        panel.border=element_rect(colour = "black", fill=NA, size=1),
+        panel.background = element_blank(),
+        panel.grid.major.x = element_line(colour = "darkgrey", linetype=1),
+        panel.grid.major.y = element_blank(),
+        strip.text.x = ggtext::element_markdown(size = 8, face = "bold"),
+        strip.text.y = ggtext::element_markdown(size = 8, face = "bold"),
+        strip.background = element_blank(),
+        axis.title.y=element_blank(),
+        axis.title.x=element_text(size=8,face="bold"),
+        axis.text=element_text(size=8, color="black", face="bold"),
+        axis.text.x = element_text(size=8, color="black")) +
+  coord_cartesian(xlim = c(0, 55), clip = "off") + 
+  scale_fill_manual(values = c("#33692B", "#39017A")) +
+  scale_y_discrete(labels=rev(y_labels_italic),limits = rev(level_order3)) +
+  scale_x_continuous(breaks = seq(0, 50, by = 10), limits=c(0,55), expand = c(0, 0))  # Set y-axis breaks at intervals of 10
+suppfig4
+
+#Export
+ggsave(othpath_combined,width = 9, height = 4.5, dpi = 600, filename = paste0("./Primary manuscript/SuppFig4_Copathogens_",today,".png"))
+```
+
+```{r supptable13_sensanalysis}
+# Build table
+## Write titles
+supptable13_titles <- data.frame(order=c(0,8.5),
+                                country=c("Confirmed by culture","Attributable by molecular diagnostics (qPCR)"))
+
+supptable13_data <-  bind_rows(country_culture |> filter(is.na(sens1) & is.na(sens2) & is.na(sens3)) |>  
+                                             filter(is.na(serogroup) & is.na(serotype) & is.na(dys_serotype) & is.na(quad) & is.na(quad2) & is.na(biv) & is.na(gems_shig) & is.na(gems_msd) & is.na(mvs) & is.na(mvs_dys) & is.na(b_dysentery) & is.na(mvs_dys_biv) & is.na(mvs_dys_quad) & is.na(mvs_dys_quad2) & is.na(gems_msd_biv) & is.na(gems_msd_quad) & is.na(gems_msd_quad2) & is.na(agegroup) & is.na(c_month) & is.na(hosp_during_episode) & is.na(clark) & is.na(maled)),
+                              overall_culture |> filter(is.na(sens1) & is.na(sens2) & is.na(sens3)) |>  
+                                             filter(is.na(serogroup) & is.na(serotype) & is.na(dys_serotype) & is.na(quad) & is.na(quad2) & is.na(biv) & is.na(gems_shig) & is.na(gems_msd) & is.na(mvs) & is.na(mvs_dys) & is.na(b_dysentery) & is.na(mvs_dys_biv) & is.na(mvs_dys_quad) & is.na(mvs_dys_quad2) & is.na(gems_msd_biv) & is.na(gems_msd_quad) & is.na(gems_msd_quad2) & is.na(agegroup) & is.na(c_month) & is.na(hosp_during_episode) & is.na(clark) & is.na(maled)),
+                              country_tac |> filter(is.na(sens1) & is.na(sens2) & is.na(sens3)) |>  
+                                             filter(is.na(serogroup) & is.na(serotype) & is.na(dys_serotype) & is.na(quad) & is.na(quad2) & is.na(biv) & is.na(gems_shig) & is.na(gems_msd) & is.na(mvs) & is.na(mvs_dys) & is.na(b_dysentery) & is.na(mvs_dys_biv) & is.na(mvs_dys_quad) & is.na(mvs_dys_quad2) & is.na(gems_msd_biv) & is.na(gems_msd_quad) & is.na(gems_msd_quad2) & is.na(agegroup) & is.na(c_month) & is.na(hosp_during_episode) & is.na(clark) & is.na(maled)),
+                              overall_tac |> filter(is.na(sens1) & is.na(sens2) & is.na(sens3)) |>  
+                                             filter(is.na(serogroup) & is.na(serotype) & is.na(dys_serotype) & is.na(quad) & is.na(quad2) & is.na(biv) & is.na(gems_shig) & is.na(gems_msd) & is.na(mvs) & is.na(mvs_dys) & is.na(b_dysentery) & is.na(mvs_dys_biv) & is.na(mvs_dys_quad) & is.na(mvs_dys_quad2) & is.na(gems_msd_biv) & is.na(gems_msd_quad) & is.na(gems_msd_quad2) & is.na(agegroup) & is.na(c_month) & is.na(hosp_during_episode) & is.na(clark) & is.na(maled))) |>
+  ungroup() |>
+  # build final indicators
+  mutate(adj_ind=paste0(sprintf("%.2f", round(adj,2))),
+         sens_ind=paste0(sprintf("%.2f", round(sens,2))),
+         order=row_number()) |>
+  # Format for the lancet
+  mutate(adj_ind=gsub("\\.", "·",adj_ind),
+         sens_ind=gsub("\\.", "·",sens_ind)) |>
+  bind_rows(supptable13_titles) |>
+  arrange(order) |>
+  select(country, ends_with("ind"))
+
+# Create table
+supptable13 <-qflextable(supptable13_data) %>%
+   add_header_row(
+    top = TRUE,                # New header goes on top of existing header row
+    values = c("Country",     # Header values for each column below
+               "Shigella incidence per 100 child-years",
+               "")) %>% 
+  set_header_labels(         # Rename the columns in original header row
+      country = "", 
+      adj_ind = "14 days of recall (per protocol)",
+      sens_ind = "7 days of recall (sensitivity analysis)")  %>%
+  # Add footnotes
+  footnote(i = 1, j = 3,value = as_paragraph("Ct: cycle threshold, MAD medically-attended diarrhea, mBGS: Modified buffered glycerol saline."),ref_symbols = c(" "),part = "body", inline = FALSE) %>%
+  footnote(i = 1, j = 2,value = as_paragraph(" Incidence is calculated at the facility-level and summed to get country-level incidence and is the number of confirmed Shigella watery diarrhea cases per 100 child-years plus the number of confirmed Shigella dysentery cases per 100 child-years at risk. Incidence is adjusted for children in the catchment area who reported diarrhea of similar severity to facility-enrolled cases but did not report seeking care. Details of incidence rate calculations are shown in Table S3."),ref_symbols = c("*"),part = "header", inline = FALSE) %>%
+  footnote(i = 2, j = c(2,3),value = as_paragraph(" The healthcare seeking adjustment is determined using a propensity to seek care comparing enrolled children to children of a similar age and severity and the community to account for children who did not seek care. This adjustment is based on caregiver-reported diarrhea within the previous 14 days, whereas the sensitivity analysis applies the same propensity to seek care modelling approach but restricted to children who reported diarrhea in the previous seven days."),ref_symbols = c("†"),part = "header", inline = FALSE) %>%
+  footnote(i = 1, j = 1,value = as_paragraph(" Includes isolates from rectal swabs transported in mBGS or Cary-Blair media."),ref_symbols = c("‡"),part = "body", inline = FALSE) %>%
+  footnote(i = c(9,18), j = 1,value = as_paragraph(" Totals are the average of country-level estimates."),ref_symbols = c("§"),part = "body", inline = FALSE) %>%
+  footnote(i = 10, j = 1,value = as_paragraph(" Defined as an ipaH cycle threshold (Ct) below the attributable cutoff."),ref_symbols = c("¶"),part = "body", inline = FALSE) %>%
+  # Set fonts
+  font(fontname = "Arial Narrow", part= "all") %>%
+  fontsize(size = 10, part = "all") %>%
+  fontsize(size = 11, part = "header") %>%
+  # Fill in cells
+  bg(i = c(1,10), part = "body", bg = "grey") %>% # add gray background to row 1
+  # column width
+  width(j = 1, width=1.5, unit = "in") %>%
+  width(j = c(2:3), width=2.5, unit = "in") %>%
+  # Add lines
+  hline_top(border = border_style2, part = "header") %>%
+  hline_top(border = border_style2, part = "body") %>%
+  hline(part = "body", i = c(1,9,10,18), border = border_style2) %>% # at rows 1,9-10 and 18 - black line
+  hline(part = "body", i = c(8,17), border = border_style3) %>% # at rows 8 and 17 - gray line
+  # remove lines in header
+  hline(part= "header", i=1, border = border_style4) %>% # makes disappear
+  # Align cells
+  valign(i = c(1:2), valign = "bottom", part = "header") %>%
+  flextable::align(align = "center", j = c(2:3), part = "all") %>%     
+  bold(i = c(1,9,10,18), bold = TRUE, part = "body")  %>%  
+  bold(i = 1, bold = TRUE, part = "header")  %>%   
+  merge_at(i = 1:2, j = 1, part = "header") %>%
+  merge_at(i = 1, j = 2:3, part = "header") %>%
+  merge_at(i = 1, j = 1:3, part = "body")  %>%
+  merge_at(i = 10, j = 1:3, part = "body")  %>%
+  # Line spacing
+  line_spacing(space = 1.15, part = "all") %>% 
+  padding(padding = 0, part = "all") %>%
+  # Add italicized text
+  compose(i = 1, j=2, part = "header",
+    value = as_paragraph(
+      as_chunk("Shigella", props = fp_text(italic = TRUE, bold = TRUE, font.size = 11, font.family = "Arial Narrow")),
+      " incidence per 100 child-years","*")) 
+supptable13
+
+#Export
+save_as_docx(supptable13, values = NULL, path=paste0("./Primary Manuscript/Supptable13_SensitivityAnalysis_",today,".docx"), pr_section = sect_properties1)
+```
