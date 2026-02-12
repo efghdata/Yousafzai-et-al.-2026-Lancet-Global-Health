@@ -503,6 +503,346 @@ enroll_data <- enrollment %>%
 # Export last step dataset
 write_rds(enroll_data, paste0("./Last Step Datasets/dcs_summary.Rds")) 
 
+################################################
+######### CREATE PEHUS SUMMARY DATASET #########
+################################################
+# Number of clusters completed
+cluster <- clusters %>%
+  mutate(cluster_num=floor(ClusterID),
+         cluster=1) %>%
+  select(clcom_country, ClusterID,cluster) %>%
+  distinct() %>%
+  group_by(clcom_country,cluster) %>%
+  summarise(frequency = n()) %>%
+  rename(pop_country=clcom_country)
+
+cluster_total <- cluster %>%
+  mutate(pop_country=8) %>%
+  group_by(pop_country,cluster) %>%
+  summarise(frequency = sum(frequency)) %>%
+  bind_rows(cluster)
+
+# area of clusters
+cluster_area <- clusters %>%
+  mutate(area=1) %>%
+  group_by(clcom_country,area) %>%
+  summarise(sum_total = sum(Area_m3)/1000000) %>%
+  rename(pop_country=clcom_country)
+
+cluster_area_total <- cluster_area %>%
+  mutate(pop_country=8) %>%
+  group_by(pop_country,area) %>%
+  summarise(sum_total = sum(sum_total)) %>%
+  bind_rows(cluster_area)
+
+# % clusters completed 
+cluster_complete <- cluster_comp %>%
+  rename(ClusterID=clcom_cluster_id) %>%
+  full_join(clusters, by = c("clcom_country", "ClusterID")) %>%
+  mutate(cluster_summary=case_when(!is.na(clcom_households) & clcom_households==1          ~ 1,
+                                   !is.na(clcom_households) & clcom_households==2          ~ 2,
+                                   !is.na(clcom_households) & clcom_households %in% c(3,4) ~ 3,
+                                   is.na(clcom_households)                                 ~ 4)) %>%
+  group_by(clcom_country,cluster_summary) %>%
+  summarise(frequency = n()) %>%
+  mutate(percent = (frequency / sum(frequency))*100) %>%
+  rename(pop_country=clcom_country)
+
+cluster_complete_total <- cluster_comp %>%
+  rename(ClusterID=clcom_cluster_id) %>%
+  full_join(clusters, by = c("clcom_country", "ClusterID")) %>%
+  mutate(cluster_summary=case_when(!is.na(clcom_households) & clcom_households==1          ~ 1,
+                                   !is.na(clcom_households) & clcom_households==2          ~ 2,
+                                   !is.na(clcom_households) & clcom_households %in% c(3,4) ~ 3,
+                                   is.na(clcom_households)                                 ~ 4)) %>%
+  group_by(cluster_summary) %>%
+  summarise(frequency = n()) %>%
+  mutate(percent = (frequency / sum(frequency))*100,
+         pop_country=8) %>%
+  bind_rows(cluster_complete)
+
+# Total individuals enumerated
+ind_enum <- pehus %>%
+  filter(pop_hhold_consent==1) %>%
+  select(pop_hh_id, pop_country, pop_num_residents) %>%
+  distinct() %>%
+  group_by(pop_country) %>%
+  summarise(frequency=sum(pop_num_residents)) %>%
+  mutate(ind=1)
+
+ind_enum_total <- ind_enum %>%
+  mutate(pop_country=8) %>%
+  group_by(pop_country, ind) %>%
+  summarise(frequency=sum(frequency)) %>%
+  bind_rows(ind_enum)
+
+
+children_enum_total <- pehus %>%
+  filter(pop_u5==1) |>
+  distinct() %>%
+  group_by(pop_country) %>%
+  summarise(frequency=sum(pop_num_residents)) %>%
+  mutate(ind=1)
+
+# Children 6-35 months of age
+children_enum <- pehus %>%
+  filter(pop_age>=6 & pop_age<36) %>%
+  group_by(pop_country) %>%
+  summarise(frequency=n()) %>%
+  mutate(children=1)
+
+children_enum_total <- children_enum %>%
+  mutate(pop_country=8) %>%
+  group_by(pop_country, children) %>%
+  summarise(frequency=sum(frequency)) %>%
+  bind_rows(children_enum)
+
+# Children with diarrhea
+children_diar <- pehus %>%
+  filter(pop_age>=6 & pop_age<36) %>%
+  group_by(pop_country,pop_diarrh_2weeks) %>%
+  summarise(frequency=n()) %>%
+  mutate(percent = (frequency / sum(frequency))*100)
+
+children_diar_total <- pehus %>%
+  filter(pop_age>=6 & pop_age<36) %>%
+  group_by(pop_diarrh_2weeks) %>%
+  summarise(frequency=n()) %>%
+  mutate(percent = (frequency / sum(frequency))*100,
+         pop_country=8) %>%
+  bind_rows(children_diar)
+
+# Consent to the HUS
+hus_consent <- pehus %>%
+  filter(pop_age>=6 & pop_age<36 & pop_diarrh_2weeks==1) %>%
+  mutate(consent=case_when(re_consent %in% c(1,2) | hus_consent %in% c(1,2) ~ 1,
+                           re_consent==0 | hus_consent==0 ~ 0,
+                           hus_consent==3 & is.na(re_consent) ~ 3)) %>%
+  group_by(pop_country,consent) %>%
+  summarise(frequency=n()) %>%
+  mutate(percent = (frequency / sum(frequency))*100)
+
+hus_consent_total <- pehus %>%
+  filter(pop_age>=6 & pop_age<36 & pop_diarrh_2weeks==1) %>%
+  mutate(consent=case_when(re_consent %in% c(1,2) | hus_consent %in% c(1,2) ~ 1,
+                           re_consent==0 | hus_consent==0 ~ 0,
+                           hus_consent==3 & is.na(re_consent) ~ 3)) %>%
+  group_by(consent) %>%
+  summarise(frequency=n()) %>%
+  mutate(percent = (frequency / sum(frequency))*100,
+         pop_country=8) %>%
+  bind_rows(hus_consent)
+
+table(pehus$hus_consent, pehus$re_consent, useNA = "ifany")
+
+# Sought care
+careseek_data <- careseek %>%
+  mutate(careseek_none=ifelse(hus_care==0,1,0),
+         careseek_efgh=ifelse(hus_careseek_efgh==1,1,0),
+         careseek_mad=ifelse(hus_careseek_mad==1 & hus_careseek_efgh==0,1,0),
+         careseek_outpost=ifelse(hus_care_oth==6,1,0),
+         careseek_pharm=ifelse(hus_care_oth %in% c(3,4),1,0),
+         careseek_healer=ifelse(hus_care_oth %in% c(1,2),1,0),
+         careseek_oth=ifelse(hus_care_oth %in% c(5,7),1,0),
+         careseek_sum=case_when(hus_careseek_efgh==1 | hus_careseek_mad==1 ~ 1,
+                                hus_care==0                                ~ 0,
+                                hus_care==1                                ~ 2))
+
+# Write functions generating the facility, site and overall number of shigella positives by TAC and culture stratified by dysentery
+site_fun=function(a) {
+  as.data.frame(careseek_data %>%
+                  group_by(pop_country,.data[[a]]) %>%
+                  summarise(frequency=n()) %>%
+                  mutate(percent = (frequency / sum(frequency))*100) %>%
+                  filter(!is.na(UQ(sym(a)))))
+}
+total_fun=function(a) {
+  as.data.frame(careseek_data %>%
+                  group_by(.data[[a]]) %>%
+                  summarise(frequency=n()) %>%
+                  mutate(percent = (frequency / sum(frequency))*100) %>%
+                  filter(!is.na(UQ(sym(a)))))
+}
+
+# wrapper function
+subgroups_fun = function(a, b) {
+  if(b=="site") {
+    site_fun(a)
+  } else if(b=="total") {
+    total_fun(a)
+  } else {print("Incorrect level selected")}
+}
+
+# specifying objects needed to run through all level/subgroup combinations
+fun_subgroup = c("careseek_none","careseek_efgh","careseek_sum","careseek_mad","careseek_outpost","careseek_pharm","careseek_healer","careseek_oth")
+fun_level = c("site", "total")
+grid = expand.grid(fun_subgroup, fun_level, stringsAsFactors = FALSE)
+
+# run wrapper function through each combination
+num_subgroup = setNames(do.call(mapply, c("subgroups_fun", unname(as.list(grid)))), paste0("careseek_", grid$Var1, "_", grid$Var2))
+
+# Rbind list plus overall non-stratified
+careseek_final = bind_rows(num_subgroup) %>%
+  mutate(pop_country=ifelse(is.na(pop_country),8,pop_country))
+
+# days between diarrhea and care seeking
+careseeking_days <- careseek %>%
+  mutate(start_dt=ifelse(hus_diarrh_start==1,as.Date(hus_diarrh_start_dt, format="%B %d, %Y"), 
+                         ifelse(hus_diarrh_start==0,as.Date(pop_visit_dt, format="%m/%d/%Y")-hus_diarrh_start_days+1,NA)), 
+         start_dt2=ifelse(hus_diarrh_start==1,as.Date(hus_diarrh_start_dt, format="%m/%d/%Y"),NA),
+         start_dt_final=ifelse(is.na(start_dt),start_dt2,start_dt),
+         efgh_date=coalesce(as.Date(hus_care_fac_ba_dt, format="%B %d, %Y"),
+                            as.Date(hus_care_fac_ke_dt, format="%B %d, %Y"),
+                            as.Date(hus_care_fac_mw_dt, format="%B %d, %Y"),
+                            as.Date(hus_care_fac_ml_dt, format="%B %d, %Y"),
+                            as.Date(hus_care_fac_pa_dt, format="%B %d, %Y"),
+                            as.Date(hus_care_fac_pe_dt, format="%B %d, %Y"),
+                            as.Date(hus_care_fac_ga_dt, format="%B %d, %Y")),
+         outpatient_date=as.Date(hus_care_out_dt, format="%B %d, %Y"),
+         inpatient_date=as.Date(hus_care_in_dt, format="%B %d, %Y"),
+         diarrhea_days=as.numeric(ifelse(!is.na(efgh_date) & !is.na(start_dt_final) & 
+                                           (efgh_date<=inpatient_date | is.na(inpatient_date)) & 
+                                           (efgh_date<=outpatient_date | is.na(outpatient_date)),efgh_date-start_dt_final+1,
+                                         ifelse(!is.na(inpatient_date) & !is.na(start_dt_final) & 
+                                                  (inpatient_date<=outpatient_date | is.na(outpatient_date)),inpatient_date-start_dt_final+1,
+                                                ifelse(!is.na(outpatient_date) & !is.na(start_dt_final),outpatient_date-start_dt_final+1,NA)))),
+         diarrhea_days=ifelse(diarrhea_days<=0,NA,diarrhea_days)) # Excluded n=36 negative values
+
+careseeking_days_site <- careseeking_days %>%
+  filter(!is.na(diarrhea_days)) %>%
+  group_by(pop_country) %>%
+  summarise(n=n(),
+            median = quantile(diarrhea_days, probs = 0.5), 
+            quant25= quantile(diarrhea_days, probs = 0.25),
+            quant75= quantile(diarrhea_days, probs = 0.75)) %>%
+  mutate(careseek_days=1)
+
+careseeking_days_total <- careseeking_days %>%
+  filter(!is.na(diarrhea_days)) %>%
+  summarise(n=n(),
+            median = quantile(diarrhea_days, probs = 0.5), 
+            quant25= quantile(diarrhea_days, probs = 0.25),
+            quant75= quantile(diarrhea_days, probs = 0.75)) %>%
+  mutate(pop_country=8,
+         careseek_days=1) %>%
+  bind_rows(careseeking_days_site)
+
+# Female sex
+female <- pehus %>%
+  filter(hus_consent %in% c(1,2) | re_consent %in% c(1,2)) %>%
+  group_by(pop_country,pop_sex) %>%
+  summarise(frequency=n()) %>%
+  mutate(percent = (frequency / sum(frequency))*100)
+
+female_total <- pehus %>%
+  filter(hus_consent %in% c(1,2) | re_consent %in% c(1,2)) %>%
+  group_by(pop_sex) %>%
+  summarise(frequency=n()) %>%
+  mutate(percent = (frequency / sum(frequency))*100,
+         pop_country=8) %>%
+  bind_rows(female) %>%
+  filter(pop_sex==1)
+
+# Age category
+age_site <- pehus %>%
+  filter((hus_consent %in% c(1,2) | re_consent %in% c(1,2))) %>%
+  mutate(c_age=case_when(pop_age>=6 & pop_age<9   ~ 1,
+                         pop_age>=9 & pop_age<12  ~ 2,
+                         pop_age>=12 & pop_age<18 ~ 3,
+                         pop_age>=18 & pop_age<24 ~ 4,
+                         pop_age>=24 & pop_age<36 ~ 5)) %>%
+  group_by(pop_country,c_age) %>%
+  summarise(frequency=n()) %>%
+  mutate(percent = (frequency / sum(frequency))*100)
+
+age_total <- pehus %>%
+  filter((hus_consent %in% c(1,2) | re_consent %in% c(1,2))) %>%
+  mutate(c_age=case_when(pop_age>=6 & pop_age<9   ~ 1,
+                         pop_age>=9 & pop_age<12  ~ 2,
+                         pop_age>=12 & pop_age<18 ~ 3,
+                         pop_age>=18 & pop_age<24 ~ 4,
+                         pop_age>=24 & pop_age<36 ~ 5)) %>%
+  group_by(c_age) %>%
+  summarise(frequency=n()) %>%
+  mutate(percent = (frequency / sum(frequency))*100,
+         pop_country=8) %>%
+  bind_rows(age_site) 
+
+# Continuous age
+agecont_site <- pehus %>%
+  filter((hus_consent %in% c(1,2) | re_consent %in% c(1,2))) %>%
+  mutate(age_months=floor(pop_age)) %>%
+  group_by(pop_country) %>%
+  summarise(median = quantile(age_months, probs = 0.5), 
+            quant25= quantile(age_months, probs = 0.25),
+            quant75= quantile(age_months, probs = 0.75)) %>%
+  mutate(agecont=1)
+
+agecont_total <- pehus %>%
+  filter((hus_consent %in% c(1,2) | re_consent %in% c(1,2))) %>%
+  mutate(age_months=floor(pop_age)) %>%
+  summarise(median = quantile(age_months, probs = 0.5), 
+            quant25= quantile(age_months, probs = 0.25),
+            quant75= quantile(age_months, probs = 0.75)) %>%
+  mutate(pop_country=8,
+         agecont=1) %>%
+  bind_rows(agecont_site) 
+
+# symptoms
+# Write functions generating site and overall 
+site_fun2=function(a) {
+  as.data.frame(pehus %>%
+                  filter((hus_consent %in% c(1,2) | re_consent %in% c(1,2))) %>%
+                  group_by(pop_country,.data[[a]]) %>%
+                  summarise(frequency=n()) %>%
+                  mutate(percent = (frequency / sum(frequency))*100) %>%
+                  filter(.data[[a]]==1))
+}
+total_fun2=function(a) {
+  as.data.frame(pehus %>%
+                  filter((hus_consent %in% c(1,2) | re_consent %in% c(1,2))) %>%
+                  group_by(.data[[a]]) %>%
+                  summarise(frequency=n()) %>%
+                  mutate(percent = (frequency / sum(frequency))*100)%>%
+                  filter(.data[[a]]==1))
+}
+
+# wrapper function
+subgroups_fun2 = function(a, b) {
+  if(b=="site") {
+    site_fun2(a)
+  } else if(b=="total") {
+    total_fun2(a)
+  } else {print("Incorrect level selected")}
+}
+
+# specifying objects needed to run through all level/subgroup combinations
+fun_subgroup2 = c("hus_blood","hus_irritable","hus_thirsty","hus_drinks","hus_wrinkled_skin","hus_nodrink","hus_sunken_eyes","hus_lethargy")
+fun_level2 = c("site", "total")
+grid2 = expand.grid(fun_subgroup2, fun_level2, stringsAsFactors = FALSE)
+
+# run wrapper function through each combination
+num_subgroup2 = setNames(do.call(mapply, c("subgroups_fun2", unname(as.list(grid2)))), paste0("hus_", grid2$Var1, "_", grid2$Var2))
+
+# Rbind list plus overall non-stratified
+symptoms = bind_rows(num_subgroup2) %>%
+  mutate(pop_country=ifelse(is.na(pop_country),8,pop_country))
+
+# Combine datasets
+pehus_final=bind_rows(cluster_total, cluster_area_total, cluster_complete_total,ind_enum_total, children_enum_total, children_diar_total,  
+                      hus_consent_total, careseek_final,careseeking_days_total,female_total, age_total, agecont_total,symptoms) %>%
+  mutate(country=case_when(pop_country==1 ~ "Bangladesh",
+                           pop_country==2 ~ "Kenya",
+                           pop_country==3 ~ "Malawi",
+                           pop_country==4 ~ "Mali",
+                           pop_country==5 ~ "Pakistan",
+                           pop_country==6 ~ "Peru",
+                           pop_country==7 ~ "The Gambia",
+                           pop_country==8 ~ "Total"))
+
+# Export last step dataset
+write_rds(pehus_final, paste0("./Last Step Datasets/pehus_table1_.Rds")) 
+
 #########################
 #### Antibiotic data ####
 #########################
@@ -1287,5 +1627,6 @@ cause_of_death <- cod |>
          cause_2_oth=ifelse(cause_2_oth1_code=="","",paste0(cause_2_oth1_code,": ",cause_2_oth1_desc)),
          cause_2_final=ifelse(cause_2_oth=="",cause_2,paste0(cause_2,", ",cause_2_oth))) |>
   select(country:cause_1c,cause_2_final)
+
 
 write_rds(cause_of_death, paste0("./Last Step Datasets/cause_of_death.Rds")) 
