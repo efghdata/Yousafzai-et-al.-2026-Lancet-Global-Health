@@ -46,6 +46,7 @@ boot_season        <- readRDS("./Last Step Datasets/boot_monthly.Rds")
 boot_severity      <- readRDS("./Last Step Datasets/boot_severity_subsets.Rds")
 serotype_dist      <- readRDS("./Last Step Datasets/serotype_dist.Rds") 
 enroll_data        <- readRDS("./Last Step Datasets/dcs_summary.Rds")
+pehus              <- readRDS("./Last Step Datasets/pehus_table1.Rds")
 summary            <- readRDS("./Last Step Datasets/enrollment_summary.Rds")
 abx_fig            <- readRDS("./Last Step Datasets/abx_fig.Rds")
 abx_tab            <- readRDS("./Last Step Datasets/abx_tab.Rds")
@@ -2532,4 +2533,158 @@ supptable13
 
 #Export
 save_as_docx(supptable13, values = NULL, path=paste0("./Primary Manuscript/Supptable13_SensitivityAnalysis_",today,".docx"), pr_section = sect_properties1)
+```
+
+```{r supptable14_pehus, echo=FALSE, include=TRUE}
+pehus2 <- pehus %>%
+         mutate(order=case_when(cluster==1 ~ 1,
+                                area==1 ~ 2,
+                                cluster_summary==1 ~ 4,
+                                cluster_summary==2 ~ 5,
+                                cluster_summary==3 ~ 6,
+                                cluster_summary==4 ~ 7,
+                                ind==1 ~ 8,
+                                children==1 ~ 9,
+                                pop_diarrh_2weeks==1 ~ 11,
+                                pop_diarrh_2weeks==2 ~ 12,
+                                pop_diarrh_2weeks==3 ~ 13,
+                                consent==1 ~ 15,
+                                consent==0 ~ 16,
+                                consent==3 ~ 17,
+                                careseek_sum==0 ~ 19,
+                                careseek_sum==1 ~ 20,
+                                careseek_sum==2 ~ 21,
+                                pop_sex==1 ~ 28,
+                                c_age==1 ~ 30,
+                                c_age==2 ~ 31,
+                                c_age==3 ~ 32,
+                                c_age==4 ~ 33,
+                                c_age==5 ~ 34,
+                                agecont==1 ~ 35,
+                                hus_blood==1 ~ 38,
+                                hus_irritable==1 ~ 39,
+                                hus_thirsty==1 ~ 40,
+                                hus_sunken_eyes==1 ~ 41,
+                                hus_wrinkled_skin==1 ~ 42,
+                                hus_drinks==1 ~ 43,
+                                hus_nodrink==1 ~ 44,
+                                hus_lethargy==1 ~ 45),
+                label=case_when(cluster==1 ~ "Total clusters demarcated: n",
+                                area==1 ~ "Study area: km2",
+                                cluster_summary==1 ~ "Cluster enumerated",
+                                cluster_summary==2 ~ "No households present in the cluster",
+                                cluster_summary==3 ~ "Could not enumerated cluster due to safety or other reasons",
+                                cluster_summary==4 ~ "Not enumerated",
+                                ind==1 ~ "Total individuals enumerated: n",
+                                children==1 ~ "Children 6-35 months of age enumerated: n ",
+                                pop_diarrh_2weeks==1 ~ "Yes",
+                                pop_diarrh_2weeks==2 ~ "No",
+                                pop_diarrh_2weeks==3 ~ "Don't know",
+                                consent==1 ~ "Yes, consented",
+                                consent==0 ~ "No, refused",
+                                consent==3 ~ "No, caregiver not available for consent and no successful revisit",
+                                careseek_sum==0 ~ "Did not seek care",
+                                careseek_sum==1 ~ "Sought care at an EFGH facility, other outpatient or inpatient hospital or health center",
+                                careseek_sum==2 ~ "Sought care at other location",
+                                pop_sex==1 ~ "Female sex: n (%)",
+                                c_age==1 ~ "6—8",
+                                c_age==2 ~ "9—11",
+                                c_age==3 ~ "12—17",
+                                c_age==4 ~ "18—23",
+                                c_age==5 ~ "24—35",
+                                agecont==1 ~ "Age in months: median (IQR) ",
+                                hus_blood==1 ~ "Blood in stool",
+                                hus_irritable==1 ~ "Irritable",
+                                hus_thirsty==1 ~ "Very thirsty",
+                                hus_sunken_eyes==1 ~ "Sunken eyes",
+                                hus_wrinkled_skin==1 ~ "Wrinkled skin",
+                                hus_drinks==1 ~ "Drinks eagerly, thirsty",
+                                hus_nodrink==1 ~ "Unable to drink or drank poorly",
+                                hus_lethargy==1 ~ "Lethargic, unconscious, or hard to stay awake"), 
+         indicator=ifelse(order %in% c(1,8,9),paste0(prettyNum(frequency, big.mark=",", scientific = FALSE)),
+                   ifelse(order==2,paste0(sprintf("%.1f", round(sum_total,1))),
+                   ifelse(order %in% c(26,35),paste0(prettyNum(median, scientific = FALSE), " (", prettyNum(round(quant25), scientific = FALSE), " - ", prettyNum(round(quant75), scientific = FALSE), ")"),
+                                              paste0(prettyNum(frequency, big.mark=",", scientific = FALSE), " (", sprintf("%.1f", round(percent,1)), ")"))))) %>%
+  ungroup() %>%
+  filter(!is.na(order)) |>
+  select(country, order, indicator, label) %>%
+  pivot_wider(names_from = country, values_from = indicator)
+
+# Create titles and add to dataset
+supptable14_titles=data.frame(order=c(0,3,10,14,18,27,29,36,37), label=c("Population Enumeration",
+                                                                     "Clusters enumerated: n (%)",
+                                                                     "Caregiver reported children 6-35 months of age had diarrhea in the past two weeks: n (%)",
+                                                                     "Caregiver of child 6-35 months of age with diarrhea consented to HUS: n (%)",
+                                                                     "Care-seeking for diarrhea: n (%)",
+                                                                     "Demographic indicators of children in the HUS",
+                                                                     "Age (months): n (%) ",
+                                                                     "Clinical characteristics ",
+                                                                     "Symptoms during diarrheal illness: n (%)"))
+
+supptable14_data <- bind_rows(pehus2,supptable14_titles) %>%
+  arrange(order) %>%
+  mutate(Bangladesh=ifelse(is.na(Bangladesh) & order %in% c(6,7,13,16,17),"0 (0.0)", Bangladesh),
+         Kenya=ifelse(is.na(Kenya) & order %in% c(6,16,17),"0 (0.0)", Kenya),
+         Mali=ifelse(is.na(Mali) & order %in% c(13,16,17),"0 (0.0)", Mali),
+         Pakistan=ifelse(is.na(Pakistan) & order %in% c(13),"0 (0.0)", Pakistan),
+         Peru=ifelse(is.na(Peru) & order %in% c(17),"0 (0.0)", Peru),
+         `The Gambia`=ifelse(is.na(`The Gambia`) & order %in% c(6,7),"0 (0.0)", `The Gambia`),
+         Bangladesh=gsub("\\.", "·",Bangladesh),
+         Kenya=gsub("\\.", "·",Kenya),
+         Malawi=gsub("\\.", "·",Malawi),
+         Mali=gsub("\\.", "·",Mali),
+         Pakistan=gsub("\\.", "·",Pakistan),
+         Peru=gsub("\\.", "·",Peru),
+         `The Gambia`=gsub("\\.", "·",`The Gambia`),
+         Total=gsub("\\.", "·",Total)) %>%
+  select(-order) |>
+  select(label, Bangladesh:`The Gambia`, Total) 
+
+# Run table
+supptable14 <-qflextable(supptable14_data) %>%
+  set_header_labels(         # Rename the columns in original header row
+      label = "Indicator", 
+      Bangladesh = "Bangladesh",                  
+      Kenya = "Kenya",
+      Malawi = "Malawi",
+      Mali = "Mali",
+      Pakistan = "Pakistan",
+      Peru = "Peru",
+      `The Gambia` = "The Gambia",
+      Total = "Total") %>%
+  # Add foonotes
+   footnote(i = 1, j = 1,value = as_paragraph("HUS: healthcare utilization survey, IQR: interquartile range."),ref_symbols = " ",part = "body", inline = FALSE) %>%
+   footnote(i = 22, j = 1,value = as_paragraph(" Health outpost, drug seller, pharmacist, traditional or religious healer, or other source."),ref_symbols = "*",part = "body", inline = FALSE) %>%
+   footnote(i = 33, j = 1,value = as_paragraph(" Column does not sum to total as surveyed participants may have reported multiple clinical symptoms."),ref_symbols = "†",part = "body", inline = FALSE) %>%
+  # Set fonts
+  font(fontname = "Times New Roman", part= "all") %>%
+  fontsize(size = 7, part = "all") %>%
+  fontsize(size = 8, part = "header") %>%
+  # Fill in cells
+  bg(i = c(1,23,32), part = "body", bg = "grey") %>% # add gray background
+  # Add lines
+  hline_top(border = border_style2, part = "header") %>%
+  hline_top(border = border_style2, part = "body") %>%
+  hline(part = "body", i = c(1,22,23,31,32,41), border = border_style2) %>% # black line
+  hline(part = "body", i = c(2,3,8:10,14,18,24,30), border = border_style3) %>% # gray line
+  # Align cells
+  valign(i = 1, valign = "bottom", part = "header") %>%
+  flextable::align(align = "center", j = c(2:9), part = "all") %>%     
+  bold(i = c(1:4,9:11,15,19,23:25,31:33), j=1, bold = TRUE, part = "body")  %>%  
+  bold(i = 1, bold = TRUE, part = "header")  %>%  
+  merge_at(i = 1, j = 1:9, part = "body")   %>% 
+  merge_at(i = 23, j = 1:9, part = "body")  %>% 
+  merge_at(i = 32, j = 1:9, part = "body") %>%
+  # Column width
+  width(j = 1, width=3, unit = "in") %>%
+  width(j = 2:9, width=0.75, unit = "in") %>%
+  # Line spacing %>%
+  line_spacing(space = 1.15, part = "all") %>% 
+  padding(padding = 0, part = "all") %>%
+  # Fill in symbols
+  flextable::compose(i = 3, j = 1, part = "body",
+    value = as_paragraph("Study area: km",as_sup("2")))
+supptable14
+
+save_as_docx(supptable14, values = NULL, path=paste0("./Primary Manuscript/SuppTable14_pehus_",today,".docx"), pr_section = sect_properties1)
 ```
